@@ -87,6 +87,12 @@
 #ifdef WITH_TAINT_TRACKING
 #include "interp/Taint.h"
 #include "tprop/TaintProp.h"
+
+//begin WITH_SAPPHIRE_AGATE
+#include "interp/UserMgmtModule.h"
+//end WITH_SAPPHIRE_AGATE
+
+
 #endif
 
 #endif  // DALVIK_DALVIK_H_
