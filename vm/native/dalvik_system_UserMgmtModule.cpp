@@ -8,71 +8,68 @@
 #include <netdb.h> 
 #include <errno.h>
 
-
-#define XATTR_NAME "user.UserMgmtModule"
-
-
 /* Send Query request */
-void sendQuery(char buffer[256],char out[256])
+void sendQuery(char buffer[256], char out[256])
 {
     int sockfd, portno, n;
     struct sockaddr_in serv_addr;
     struct hostent *server;
 
     portno = 24068;
-    bzero(out,256);
+    bzero(out, 256);
     /* Create a socket point */
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0)
-    {
-        perror("ERROR opening socket");
+    if (sockfd < 0) {
+        ALOGE("ERROR: UserMgmtModule: cannot open socket");
         strcpy(out,"-2");
-    }else{
-	    //server = gethostbyname("localhost");
-	    server = gethostbyname("dunbar.cs.washington.edu");
-	    if (server == NULL) {
-		fprintf(stderr,"ERROR, no such host\n");
-		strcpy(out,"-3");
-	    }else{
-		    bzero((char *) &serv_addr, sizeof(serv_addr));
-		    serv_addr.sin_family = AF_INET;
-		    bcopy((char *)server->h_addr,
-			   (char *)&serv_addr.sin_addr.s_addr,
-				server->h_length);
-		    serv_addr.sin_port = htons(portno);
+        return;
+    }
 
-		    /* Now connect to the server */
-		    if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) 
-		    {
-			 perror("ERROR connecting");
-			 strcpy(out,"-4");
-		    }else{
+    //server = gethostbyname("localhost");
+    // TODO: This is hard-coded for now
+    /* Check if connectivity with server */
+    server = gethostbyname("dunbar.cs.washington.edu");
+    if (server == NULL) {
+        ALOGE("ERROR: UserMgmtModule: no such host\n");
+        strcpy(out,"-3");
+        return;
+    }
 
-			    /* Send message to the server */
-			    n = write(sockfd,buffer,strlen(buffer));
-			    if (n < 0)
-			    {
-				 perror("ERROR writing to socket");
-				 strcpy(out,"-5");
-			    }else{
-				    /* Get server response */
-				    bzero(out,256);
-				    n = read(sockfd,out,255);
-				    if (n < 0) 
-				    {
-					 perror("ERROR reading from socket");
-					 strcpy(out,"-6");
-				    }
-			    }
-		    }
-	    }
+    bzero((char *) &serv_addr, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    bcopy((char *)server->h_addr,
+    (char *)&serv_addr.sin_addr.s_addr, server->h_length);
+    serv_addr.sin_port = htons(portno);
+
+    /* Connect to the server */
+    if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) {
+        ALOGE("ERROR: UserMgmtModule: cannot connect to User Management Service");
+        strcpy(out,"-4");
+        return;
+    }
+
+    /* Send message to the server */
+    n = write(sockfd,buffer,strlen(buffer));
+    if (n < 0) {
+        ALOGE("ERROR: UserMgmtModule: cannot writing to socket open to User Management Service");
+        strcpy(out,"-5");
+        return;
+    }
+
+    /* Get server response */
+    bzero(out,256);
+    n = read(sockfd,out,255);
+    if (n < 0) {
+        ALOGE("ERROR: UserMgmtModule: cannot read from socket, response from User Management Service");
+        strcpy(out,"-6");
+        return;
     }
 }
 
 /*
- * public static void getID(char user[256],char password[256]))
+ * public static void login(char user[256],char password[256]))
  */
-static void Dalvik_dalvik_system_UserMgmtModule_getID(const u4* args,
+static void Dalvik_dalvik_system_UserMgmtModule_login(const u4* args,
     JValue* pResult)
 {
     char buffer[256];
@@ -107,10 +104,45 @@ static void Dalvik_dalvik_system_UserMgmtModule_getID(const u4* args,
     RETURN_INT(atoi(out));
 }
 
+/*
+ * public static void addUser(char user[256], char password[256]))
+ */
+static void Dalvik_dalvik_system_UserMgmtModule_addUser(const u4* args,
+    JValue* pResult)
+{
+    ALOGW("UserMgmtModule: addUser not implemented yet");
 
+    RETURN_VOID();
+}
+
+/*
+ * public static void addGroup(char group[256]))
+ */
+static void Dalvik_dalvik_system_UserMgmtModule_addGroup(const u4* args,
+    JValue* pResult)
+{
+    ALOGW("UserMgmtModule: addGroup not implemented yet");
+
+    RETURN_VOID();
+}
+
+/*
+ * public static void addUserToGroup(char user[256], char group[256]))
+ */
+static void Dalvik_dalvik_system_UserMgmtModule_addUserToGroup(const u4* args,
+    JValue* pResult)
+{
+    ALOGW("UserMgmtModule: addUserToGroup not implemented yet");
+
+    RETURN_VOID();
+}
 
 const DalvikNativeMethod dvm_dalvik_system_UserMgmtModule[] = {
-    	{ "getID",  "(Ljava/lang/String;Ljava/lang/String)V",
-        Dalvik_dalvik_system_UserMgmtModule_getID},
+    	{ "login",  "(Ljava/lang/String;Ljava/lang/String)V",
+        Dalvik_dalvik_system_UserMgmtModule_login},
+    	{ "addGroup",  "(Ljava/lang/String)V",
+        Dalvik_dalvik_system_UserMgmtModule_addGroup},
+    	{ "addUserToGroup",  "(Ljava/lang/String;Ljava/lang/String)V",
+        Dalvik_dalvik_system_UserMgmtModule_addUserToGroup},
 	{ NULL, NULL, NULL },
 };
