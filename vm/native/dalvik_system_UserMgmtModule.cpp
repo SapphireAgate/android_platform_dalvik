@@ -17,7 +17,7 @@ static int Dalvik_dalvik_system_UserMgmtModule_getID()
 
 
 const DalvikNativeMethod dvm_dalvik_system_UserMgmtModule[] = {
-    	{ "login",  "()I",
+    	{ "getID",  "()I",
         Dalvik_dalvik_system_UserMgmtModule_getID},
 	{ NULL, NULL, NULL },
 };

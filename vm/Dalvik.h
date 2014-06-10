@@ -89,6 +89,7 @@
 #include "tprop/TaintProp.h"
 
 //begin WITH_SAPPHIRE_AGATE
+#include "Agate.h"
 #include "interp/UserMgmtModule.h"
 //end WITH_SAPPHIRE_AGATE
 

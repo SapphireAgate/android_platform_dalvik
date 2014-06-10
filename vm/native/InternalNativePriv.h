@@ -129,6 +129,7 @@ extern const DalvikNativeMethod dvm_org_apache_harmony_dalvik_NativeTestTarget[]
 extern const DalvikNativeMethod dvm_sun_misc_Unsafe[];
 #ifdef WITH_TAINT_TRACKING
 extern const DalvikNativeMethod dvm_dalvik_system_Taint[];
+extern const DalvikNativeMethod dvm_dalvik_system_UserFlowPolicy[];
 #endif
 
 #endif  // DALVIK_NATIVE_INTERNALNATIVEPRIV_H_

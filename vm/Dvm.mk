@@ -199,6 +199,7 @@ ifeq ($(WITH_TAINT_TRACKING), true)
 	LOCAL_SRC_FILES += native/dalvik_system_Taint.cpp
 	LOCAL_SRC_FILES += tprop/TaintProp.cpp
 	LOCAL_SRC_FILES += tprop/TaintPolicy.cpp
+	LOCAL_SRC_FILES += native/dalvik_system_UserFlowPolicy.cpp
 endif
 
 # TODO: this is the wrong test, but what's the right one?
