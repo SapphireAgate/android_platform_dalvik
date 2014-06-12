@@ -5,6 +5,7 @@
 #define _DALVIK_AGATE
 
 /* The Policy structure */
+// TODO: Maximum 2 readers for now
 typedef struct Policy {
     u4 n_readers;        // number of readers
     u4 readers[2];         // vector of reader (for now) Users (will be Groups)

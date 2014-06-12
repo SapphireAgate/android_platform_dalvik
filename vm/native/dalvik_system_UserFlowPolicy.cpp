@@ -11,9 +11,114 @@
 
 /* Hardcode some policies? */
 
-//Policy policies[3] = {{1, {1}, 0, NULL},
-//                      {1, {2}, 0, NULL},
-//                      {2, {1, 3}, 0, NULL}};
+Policy policies[6] = {{1, {1}, 0, {0}},
+                      {1, {2}, 0, {0}},
+                      {1, {3}, 0, {0}},
+                      {2, {1, 2}, 0, {0}},
+                      {2, {1, 3}, 0, {0}},
+                      {2, {2, 3}, 0, {0}}};
+
+
+/* Gets the intersection of two vectors */
+// TODO: assume sorted vectors
+static int intersect(u4 v[], u4 n, u4 u[], u4 m, u4 out[])
+{
+    u4 i = 0, j = 0, k = 0;
+    while ((i < n) && (j < m))
+    {
+        if (v[i] < u[j])
+        {
+            i++;
+        }
+        else if (v[i] > u[j])
+        {
+            j++;
+        }
+        else
+        {
+            out[k] = v[i];
+            i++;
+            j++;
+            k++;
+        }
+    }
+    return k;
+}
+
+
+/*
+ * TODO: For now, a label is a set of up to 32 unique policies.
+ * Each set bit in the label gives the ID of a policy. When a
+ * new policy is created in the system, a unique, multiple of 2 ID has to be
+ * generated. 
+ * We will change the encoding style to have the label point to a
+ * cumulative policy. This will not limit the number of policies in the
+ * system but might make policy merging more expensive.
+ *
+ * public static boolean canFlow(int sourceLabel, int destLabel)
+ */
+static void Dalvik_dalvik_system_UserFlowPolicy_canFlow(const u4* args,
+    JValue* pResult)
+{
+    u4 sourceLabel = args[0];
+    u4 destLabel = args[1];
+
+    // Confidentiality: Check if intersection of readers
+    // of policies in sourceLabel include the reunion of
+    // readers in the policies encoded by the destLabel.
+
+    u4 out[2]; // TODO: assume maximum of 2 readers
+
+    u4 i = 0, j = 0, k = 0;
+    u4 length = 0;
+    bool result = true;
+
+    /* Get reader intersection */    
+    // find the first policy
+    while (sourceLabel > 0) {
+	if (sourceLabel % 2 != 0) {
+            length = policies[i].n_readers;
+            for (j = 0; j < length; j++)
+                out[j] = policies[i].readers[j];
+            break;
+        }
+        sourceLabel = sourceLabel >> 1;
+        i++;
+    }
+
+    // intersect with the rest of the policies
+    while (sourceLabel > 0) {
+	if (sourceLabel % 2 != 0) {
+            length = intersect(policies[i].readers, policies[i].n_readers, out, length, out);
+        }
+        sourceLabel = sourceLabel >> 1;
+        i++;
+    }
+
+    /* Check if the reader set in policies encoded in destLabel
+     * is included in the intersection computed above */
+    i = 0;
+    while (destLabel > 0) {
+	if (destLabel % 2 != 0) {
+            for (j = 0; j < policies[i].n_readers; j++) {
+                result = false;
+                for (k = 0; k < length; k++)
+                    if (policies[i].readers[j] == out[k]) {
+                        result = true;
+                        break;
+                    }
+                 if (result == false) {
+                     RETURN_BOOLEAN(false);
+                     return;
+                 }
+            }
+        }
+        sourceLabel = sourceLabel >> 1;
+        i++;
+    }
+
+    RETURN_BOOLEAN(result);
+}
 
 /*
  * TODO: for now select a hard-coded policy
@@ -698,6 +803,8 @@ static void Dalvik_dalvik_system_UserFlowPolicy_logPeerFromFd(const u4* args,
 }
 
 const DalvikNativeMethod dvm_dalvik_system_UserFlowPolicy[] = {
+    { "canFlow",  "(II)C",
+        Dalvik_dalvik_system_UserFlowPolicy_canFlow},
     { "addPolicyString",  "(Ljava/lang/String;I)V",
         Dalvik_dalvik_system_UserFlowPolicy_addPolicyString},
     { "addPolicyObjectArray",  "([Ljava/lang/Object;I)V",
