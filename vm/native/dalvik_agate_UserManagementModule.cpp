@@ -66,9 +66,9 @@ void sendQuery(char buffer[256], char out[256])
 }
 
 /*
- * public static int login(String user, String password)
+ * public static int loginImpl(String user, String password)
  */
-static void Dalvik_dalvik_system_UserMgmtModule_loginImpl(const u4* args,
+static void Dalvik_dalvik_agate_UserManagementModule_loginImpl(const u4* args,
     JValue* pResult)
 {
     char buffer[256];
@@ -109,7 +109,7 @@ static void Dalvik_dalvik_system_UserMgmtModule_loginImpl(const u4* args,
 /*
  * public static void addUser(char user[256], char password[256]))
  */
-static void Dalvik_dalvik_system_UserMgmtModule_addUser(const u4* args,
+static void Dalvik_dalvik_agate_UserManagementModule_addUser(const u4* args,
     JValue* pResult)
 {
     ALOGW("UserMgmtModule: addUser not implemented yet");
@@ -120,7 +120,7 @@ static void Dalvik_dalvik_system_UserMgmtModule_addUser(const u4* args,
 /*
  * public static void addGroup(char group[256]))
  */
-static void Dalvik_dalvik_system_UserMgmtModule_addGroup(const u4* args,
+static void Dalvik_dalvik_agate_UserManagementModule_addGroup(const u4* args,
     JValue* pResult)
 {
     ALOGW("UserMgmtModule: addGroup not implemented yet");
@@ -131,7 +131,7 @@ static void Dalvik_dalvik_system_UserMgmtModule_addGroup(const u4* args,
 /*
  * public static void addUserToGroup(char user[256], char group[256]))
  */
-static void Dalvik_dalvik_system_UserMgmtModule_addUserToGroup(const u4* args,
+static void Dalvik_dalvik_agate_UserManagementModule_addUserToGroup(const u4* args,
     JValue* pResult)
 {
     ALOGW("UserMgmtModule: addUserToGroup not implemented yet");
@@ -139,12 +139,12 @@ static void Dalvik_dalvik_system_UserMgmtModule_addUserToGroup(const u4* args,
     RETURN_INT(0);
 }
 
-const DalvikNativeMethod dvm_dalvik_system_UserMgmtModule[] = {
+const DalvikNativeMethod dvm_dalvik_agate_UserManagementModule[] = {
     	{ "loginImpl",  "(Ljava/lang/String;Ljava/lang/String;)I",
-        Dalvik_dalvik_system_UserMgmtModule_loginImpl},
+        Dalvik_dalvik_agate_UserManagementModule_loginImpl},
     	{ "addGroup",  "(Ljava/lang/String;)I",
-        Dalvik_dalvik_system_UserMgmtModule_addGroup},
+        Dalvik_dalvik_agate_UserManagementModule_addGroup},
     	{ "addUserToGroup",  "(Ljava/lang/String;Ljava/lang/String;)I",
-        Dalvik_dalvik_system_UserMgmtModule_addUserToGroup},
+        Dalvik_dalvik_agate_UserManagementModule_addUserToGroup},
 	{ NULL, NULL, NULL },
 };

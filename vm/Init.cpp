@@ -59,6 +59,9 @@ static bool initZygote();
 /* global state */
 struct DvmGlobals gDvm;
 struct DvmJniGlobals gDvmJni;
+// start WITH_SAPPHIRE_AGATE
+struct DvmAgateGlobals gDvmAgate;
+// end WITH_SAPPHIRE_AGATE
 
 /* JIT-specific global state */
 #if defined(WITH_JIT)
@@ -1485,6 +1488,11 @@ std::string dvmStartup(int argc, const char* const argv[],
     if (!dvmClassStartup()) {
         return "dvmClassStartup failed";
     }
+//start WITH_SAPPHIRE_AGATE
+    if (!dvmAgateStartup()) {
+        return "dvmAgateStartup failed";
+    }
+//end WITH_SAPPHIRE_AGATE
 
     /*
      * At this point, the system is guaranteed to be sufficiently
@@ -2025,6 +2033,9 @@ void dvmShutdown()
     dvmDebuggerShutdown();
     dvmProfilingShutdown();
     dvmJniShutdown();
+//start WITH_SAPPHIRE_AGATE
+    dvmAgateShutdown();
+//end WITH_SAPPHIRE_AGATE
     dvmStringInternShutdown();
     dvmThreadShutdown();
     dvmClassShutdown();

@@ -56,8 +56,8 @@ static DalvikNativeClass gDvmNativeMethodSet[] = {
 #ifdef WITH_TAINT_TRACKING
     { "Ldalvik/system/Taint;",            dvm_dalvik_system_Taint, 0 },
 //begin WITH_SAPPHIRE_AGATE
-    { "Ldalvik/system/UserMgmtModule;",   dvm_dalvik_system_UserMgmtModule, 0 },
-    { "Ldalvik/system/UserFlowPolicy;",   dvm_dalvik_system_UserFlowPolicy, 0 },
+    { "Ldalvik/agate/UserManagementModule;",   dvm_dalvik_agate_UserManagementModule, 0 },
+    { "Ldalvik/agate/PolicyManagementModule;",   dvm_dalvik_agate_PolicyManagementModule, 0 },
 //end WITH_SAPPHIRE_AGATE
 #endif
     { "Lorg/apache/harmony/dalvik/ddmc/DdmServer;",

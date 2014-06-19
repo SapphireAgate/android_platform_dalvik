@@ -1,23 +1,22 @@
 /*
- * dalvik.system.UserFlowPolicy
+ * dalvik.agate.PolicyManagementModule
  */
 #include "Dalvik.h"
 #include "native/InternalNativePriv.h"
 #include "attr/xattr.h"
+#include "agate/AgatePriv.h"
 
 #include <errno.h>
 
-#define TAINT_XATTR_NAME "user.policy"
+#define FILE_XATTR_NAME "file.policy"
 
 /* Hardcode some policies? */
-
 Policy policies[6] = {{1, {1}, 0, {0}},
                       {1, {2}, 0, {0}},
                       {1, {3}, 0, {0}},
                       {2, {1, 2}, 0, {0}},
                       {2, {1, 3}, 0, {0}},
                       {2, {2, 3}, 0, {0}}};
-
 
 /* Gets the intersection of two vectors */
 // TODO: assume sorted vectors
@@ -57,7 +56,7 @@ static int intersect(u4 v[], u4 n, u4 u[], u4 m, u4 out[])
  *
  * public static boolean canFlow(int sourceLabel, int destLabel)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_canFlow(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
     JValue* pResult)
 {
     u4 sourceLabel = args[0];
@@ -124,7 +123,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_canFlow(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyString(String str, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyString(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString(const u4* args,
     JValue* pResult)
 {
     StringObject *strObj = (StringObject*) args[0];
@@ -142,7 +141,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyString(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyObjectArray(Object[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyObjectArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -157,7 +156,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyObjectArray(const u4* a
  * TODO: for now select a hard-coded policy
  * public static void addPolicyBooleanArray(boolean[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyBooleanArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -172,7 +171,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyBooleanArray(const u4* 
  * TODO: for now select a hard-coded policy
  * public static void addPolicyCharArray(char[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyCharArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -187,7 +186,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyCharArray(const u4* arg
  * TODO: for now select a hard-coded policy
  * public static void addPolicyByteArray(byte[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyByteArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -202,7 +201,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyByteArray(const u4* arg
  * TODO: for now select a hard-coded policy
  * public static void addPolicyIntArray(int[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyIntArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyIntArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -217,7 +216,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyIntArray(const u4* args
  * TODO: for now select a hard-coded policy
  * public static void addPolicyShortArray(short[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyShortArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShortArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -232,7 +231,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyShortArray(const u4* ar
  * TODO: for now select a hard-coded policy
  * public static void addPolicyLongArray(long[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyLongArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLongArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -247,7 +246,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyLongArray(const u4* arg
  * TODO: for now select a hard-coded policy
  * public static void addPolicyFloatArray(float[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyFloatArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloatArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -262,7 +261,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyFloatArray(const u4* ar
  * TODO: for now select a hard-coded policy
  * public static void addPolicyDoubleArray(double[] array, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyDoubleArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDoubleArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -277,7 +276,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyDoubleArray(const u4* a
  * TODO: for now select a hard-coded policy
  * public static void addPolicyBoolean(boolean val, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyBoolean(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBoolean(const u4* args,
     JValue* pResult)
 {
     u4 val     = args[0];
@@ -292,7 +291,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyBoolean(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyChar(char val, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyChar(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyChar(const u4* args,
     JValue* pResult)
 {
     u4 val     = args[0];
@@ -307,7 +306,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyChar(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyByte(byte val, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyByte(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByte(const u4* args,
     JValue* pResult)
 {
     u4 val     = args[0];
@@ -322,7 +321,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyByte(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyInt(int val, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyInt(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyInt(const u4* args,
     JValue* pResult)
 {
     u4 val     = args[0];
@@ -337,7 +336,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyInt(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyShort(short val, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyShort(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShort(const u4* args,
     JValue* pResult)
 {
     u4 val     = args[0];
@@ -352,7 +351,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyShort(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyLong(long val, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyLong(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLong(const u4* args,
     JValue* pResult)
 {
     u8 val;
@@ -368,7 +367,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyLong(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyFloat(float val, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyFloat(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloat(const u4* args,
     JValue* pResult)
 {
     u4 val     = args[0];
@@ -383,7 +382,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyFloat(const u4* args,
  * TODO: for now select a hard-coded policy
  * public static void addPolicyDouble(double val, (int policyId,) int[] readers, int[] writers)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyDouble(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDouble(const u4* args,
     JValue* pResult)
 {
     u8 val;
@@ -398,7 +397,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyDouble(const u4* args,
 /*
  * public static void getPolicyString(String str);
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyString(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyString(const u4* args,
     JValue* pResult)
 {
     StringObject *strObj = (StringObject*) args[0];
@@ -415,7 +414,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyString(const u4* args,
 /*
  * public static int getPolicyObjectArray(Object[] obj)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyObjectArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyObjectArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -429,7 +428,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyObjectArray(const u4* a
 /*
  * public static int getPolicyBooleanArray(boolean[] array)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyBooleanArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyBooleanArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -443,7 +442,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyBooleanArray(const u4* 
 /*
  * public static int getPolicyCharArray(char[] array)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyCharArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyCharArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -457,7 +456,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyCharArray(const u4* arg
 /*
  * public static int getPolicyByteArray(byte[] array)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyByteArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyByteArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -471,7 +470,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyByteArray(const u4* arg
 /*
  * public static int getPolicyIntArray(int[] array)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyIntArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyIntArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -485,7 +484,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyIntArray(const u4* args
 /*
  * public static int getPolicyShortArray(short[] array)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyShortArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyShortArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -499,7 +498,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyShortArray(const u4* ar
 /*
  * public static int getPolicyLongArray(long[] array)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyLongArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyLongArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -513,7 +512,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyLongArray(const u4* arg
 /*
  * public static int getPolicyFloatArray(float[] array)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyFloatArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyFloatArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -527,7 +526,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyFloatArray(const u4* ar
 /*
  * public static int getPolicyDoubleArray(double[] array)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyDoubleArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyDoubleArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
@@ -541,7 +540,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyDoubleArray(const u4* a
 /*
  * public static int getPolicyBoolean(boolean val)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyBoolean(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyBoolean(const u4* args,
     JValue* pResult)
 {
     // args[0] = the value
@@ -553,7 +552,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyBoolean(const u4* args,
 /*
  * public static int getPolicyChar(char val)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyChar(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyChar(const u4* args,
     JValue* pResult)
 {
     // args[0] = the value
@@ -565,7 +564,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyChar(const u4* args,
 /*
  * public static int getPolicyByte(byte val)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyByte(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyByte(const u4* args,
     JValue* pResult)
 {
     // args[0] = the value
@@ -577,7 +576,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyByte(const u4* args,
 /*
  * public static int getPolicyInt(int val)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyInt(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyInt(const u4* args,
     JValue* pResult)
 {
     // args[0] = the value
@@ -589,7 +588,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyInt(const u4* args,
 /*
  * public static int getPolicyShort(int val)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyShort(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyShort(const u4* args,
     JValue* pResult)
 {
     // args[0] = the value
@@ -601,7 +600,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyShort(const u4* args,
 /*
  * public static int getPolicyLong(long val)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyLong(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyLong(const u4* args,
     JValue* pResult)
 {
     // args[0:1] = the value
@@ -613,7 +612,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyLong(const u4* args,
 /*
  * public static int getPolicyFloat(float val)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyFloat(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyFloat(const u4* args,
     JValue* pResult)
 {
     // args[0] = the value
@@ -625,7 +624,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyFloat(const u4* args,
 /*
  * public static int getPolicyDouble(long val)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyDouble(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyDouble(const u4* args,
     JValue* pResult)
 {
     // args[0:1] = the value
@@ -637,7 +636,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyDouble(const u4* args,
 /*
  * public static int getPolicyRef(Object obj)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyRef(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyRef(const u4* args,
     JValue* pResult)
 {
     // args[0] = the value
@@ -646,47 +645,51 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyRef(const u4* args,
     RETURN_INT(tag);
 }
 
-static u4 getTaintXattr(int fd)
+static u4 getPolicyXattr(int fd)
 {
     int ret;
     u4 buf;
-    u4 tag = TAINT_CLEAR;
+    u4 tag = 0;
 
-    ret = fgetxattr(fd, TAINT_XATTR_NAME, &buf, sizeof(buf));
+    ret = fgetxattr(fd, FILE_XATTR_NAME, &buf, sizeof(buf));
     if (ret > 0) {
 	tag = buf;
     } else {
 	if (errno == ENOATTR) {
 	    /* do nothing */
 	} else if (errno == ERANGE) {
-	    ALOGW("TaintLog: fgetxattr(%d) contents to large", fd);
+	    ALOGW("AgateLog: fgetxattr(%d) contents to large", fd);
 	} else if (errno == ENOTSUP) {
 	    /* XATTRs are not supported. No need to spam the logs */
+	    ALOGW("AgateLog: fgetxattr(%d): xattrs not suported", fd);
 	} else if (errno == EPERM) {
 	    /* Strange interaction with /dev/log/main. Suppress the log */
 	} else {
-	    ALOGW("TaintLog: fgetxattr(%d): unknown error code %d", fd, errno);
+	    ALOGW("AgateLog: fgetxattr(%d): unknown error code %d", fd, errno);
 	}
     }
 
     return tag;
 }
 
-static void setTaintXattr(int fd, u4 tag)
+static void setPolicyXattr(int fd, u4 tag)
 {
     int ret;
 
-    ret = fsetxattr(fd, TAINT_XATTR_NAME, &tag, sizeof(tag), 0);
+    ALOGW("AgateLog: [setPolicyXattr]: Set tag 0x%08x on fd %d", tag, fd);
+    ret = fsetxattr(fd, FILE_XATTR_NAME, &tag, sizeof(tag), 0);
 
     if (ret < 0) {
 	if (errno == ENOSPC || errno == EDQUOT) {
-	    ALOGW("TaintLog: fsetxattr(%d): not enough room to set xattr", fd);
+	    ALOGW("AgateLog: fsetxattr(%d): not enough room to set xattr", fd);
 	} else if (errno == ENOTSUP) {
 	    /* XATTRs are not supported. No need to spam the logs */
+	    ALOGW("AgateLog: fsetxattr(%d): xattrs not suported", fd);
 	} else if (errno == EPERM) {
 	    /* Strange interaction with /dev/log/main. Suppress the log */
+	    ALOGW("AgateLog: fsetxattr(%d): xattrs something with permissions /dev/log/main ", fd);
 	} else {
-	    ALOGW("TaintLog: fsetxattr(%d): unknown error code %d", fd, errno);
+	    ALOGW("AgateLog: fsetxattr(%d): unknown error code %d", fd, errno);
 	}
     }
 
@@ -695,7 +698,7 @@ static void setTaintXattr(int fd, u4 tag)
 /*
  * public static int getPolicyFile(int fd)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyFile(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicyFile(const u4* args,
     JValue* pResult)
 {
     u4 tag;
@@ -703,10 +706,10 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyFile(const u4* args,
     // args[1] = the return taint
     // args[2] = fd taint
 
-    tag = getTaintXattr(fd);
+    tag = getPolicyXattr(fd);
 
     if (tag) {
-	ALOGI("TaintLog: getTaintFile(%d) = 0x%08x", fd, tag);
+	ALOGI("AgateLog: getPolicyFile(%d) = 0x%08x", fd, tag);
     }
 
     RETURN_INT(tag);
@@ -715,24 +718,67 @@ static void Dalvik_dalvik_system_UserFlowPolicy_getPolicyFile(const u4* args,
 /*
  * public static int addPolicyFile(int fd, u4 tag)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyFile(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFile(const u4* args,
     JValue* pResult)
 {
     u4 otag;
     int fd = (int)args[0]; // args[0] = the file descriptor
     u4 tag = args[1];      // args[1] = the taint tag
-    // args[2] = the return taint
-    // args[3] = fd taint
-    // args[4] = tag taint
 
-    otag = getTaintXattr(fd);
+    otag = getPolicyXattr(fd);
 
     if (tag) {
-	ALOGI("TaintLog: addTaintFile(%d): adding 0x%08x to 0x%08x = 0x%08x",
+	ALOGI("AgateLog: addPolicyFile(%d): adding 0x%08x to 0x%08x = 0x%08x",
 		fd, tag, otag, tag | otag);
     }
 
-    setTaintXattr(fd, tag | otag);
+    setPolicyXattr(fd, tag | otag);
+
+    RETURN_VOID();
+}
+
+/*
+ * public static int getPolicySocket(int fd)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicySocket(const u4* args,
+    JValue* pResult)
+{
+    Label* l;
+    u4 tag = 0;
+    int fd = (int)args[0]; // args[0] = the file descriptor
+
+    dvmHashTableLock(gDvmAgate.socketPolicies);
+    l = (Label*) dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpL,
+                                    hashcmpLabels, hashupdateLabel, false);
+    dvmHashTableUnlock(gDvmAgate.socketPolicies); 
+    
+    if (tag) {
+	ALOGI("AgateLog: [getPolicySocket(%d)] = 0x%08x", fd, tag);
+    }
+
+    RETURN_INT(tag);
+}
+
+/*
+ * public static int addPolicySocket(int fd, u4 tag)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicySocket(const u4* args,
+    JValue* pResult)
+{
+    int fd = (int)args[0]; // args[0] = the file descriptor
+    u4 tag = args[1];      // args[1] = the taint tag
+
+    Label* tmpL = (Label*) malloc(sizeof(Label));
+    tmpL->label = tag;
+
+    if (tag) {
+        dvmHashTableLock(gDvmAgate.socketPolicies);
+        dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpL,
+                                    hashcmpLabels, hashupdateLabel, true);
+        ALOGI("AgateLog: [addPolicySocket(%d)] adding 0x%08x",
+    		fd, tag);
+        dvmHashTableUnlock(gDvmAgate.socketPolicies); 
+    }
 
     RETURN_VOID();
 }
@@ -740,7 +786,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_addPolicyFile(const u4* args,
 /*
  * public static void log(String msg)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_log(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_log(const u4* args,
     JValue* pResult)
 {
     StringObject* msgObj = (StringObject*) args[0];
@@ -767,7 +813,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_log(const u4* args,
 /*
  * public static void logPathFromFd(int fd)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_logPathFromFd(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_logPathFromFd(const u4* args,
     JValue* pResult)
 {
     int fd = (int) args[0];
@@ -792,7 +838,7 @@ static void Dalvik_dalvik_system_UserFlowPolicy_logPathFromFd(const u4* args,
 /*
  * public static void logPeerFromFd(int fd)
  */
-static void Dalvik_dalvik_system_UserFlowPolicy_logPeerFromFd(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_logPeerFromFd(const u4* args,
     JValue* pResult)
 {
     int fd = (int) args[0];
@@ -802,92 +848,96 @@ static void Dalvik_dalvik_system_UserFlowPolicy_logPeerFromFd(const u4* args,
     RETURN_VOID();
 }
 
-const DalvikNativeMethod dvm_dalvik_system_UserFlowPolicy[] = {
-    { "canFlow",  "(II)C",
-        Dalvik_dalvik_system_UserFlowPolicy_canFlow},
+const DalvikNativeMethod dvm_dalvik_agate_PolicyManagementModule[] = {
+    { "canFlow",  "(II)Z",
+        Dalvik_dalvik_agate_PolicyManagementModule_canFlow},
     { "addPolicyString",  "(Ljava/lang/String;I)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyString},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString},
     { "addPolicyObjectArray",  "([Ljava/lang/Object;I)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyObjectArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray},
     { "addPolicyBooleanArray",  "([ZI)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyBooleanArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray},
     { "addPolicyCharArray",  "([CI)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyCharArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray},
     { "addPolicyByteArray",  "([BI)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyByteArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray},
     { "addPolicyIntArray",  "([II)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyIntArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyIntArray},
     { "addPolicyShortArray",  "([SI)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyShortArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShortArray},
     { "addPolicyLongArray",  "([JI)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyLongArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLongArray},
     { "addPolicyFloatArray",  "([FI)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyFloatArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloatArray},
     { "addPolicyDoubleArray",  "([DI)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyDoubleArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDoubleArray},
     { "addPolicyBoolean",  "(ZI)Z",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyBoolean},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBoolean},
     { "addPolicyChar",  "(CI)C",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyChar},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyChar},
     { "addPolicyByte",  "(BI)B",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyByte},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByte},
     { "addPolicyInt",  "(II)I",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyInt},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyInt},
     { "addPolicyShort",  "(SI)S",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyShort},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShort},
     { "addPolicyLong",  "(JI)J",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyLong},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLong},
     { "addPolicyFloat",  "(FI)F",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyFloat},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloat},
     { "addPolicyDouble",  "(DI)D",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyDouble},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDouble},
     { "getPolicyString",  "(Ljava/lang/String;)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyString},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyString},
     { "getPolicyObjectArray",  "([Ljava/lang/Object;)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyObjectArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyObjectArray},
     { "getPolicyBooleanArray",  "([Z)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyBooleanArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyBooleanArray},
     { "getPolicyCharArray",  "([C)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyCharArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyCharArray},
     { "getPolicyByteArray",  "([B)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyByteArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyByteArray},
     { "getPolicyIntArray",  "([I)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyIntArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyIntArray},
     { "getPolicyShortArray",  "([S)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyShortArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyShortArray},
     { "getPolicyLongArray",  "([J)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyLongArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyLongArray},
     { "getPolicyFloatArray",  "([F)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyFloatArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyFloatArray},
     { "getPolicyDoubleArray",  "([D)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyDoubleArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyDoubleArray},
     { "getPolicyBoolean",  "(Z)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyBoolean},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyBoolean},
     { "getPolicyChar",  "(C)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyChar},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyChar},
     { "getPolicyByte",  "(B)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyByte},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyByte},
     { "getPolicyInt",  "(I)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyInt},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyInt},
     { "getPolicyShort",  "(S)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyShort},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyShort},
     { "getPolicyLong",  "(J)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyLong},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyLong},
     { "getPolicyFloat",  "(F)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyFloat},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyFloat},
     { "getPolicyDouble",  "(D)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyDouble},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyDouble},
     { "getPolicyRef",  "(Ljava/lang/Object;)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyRef},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyRef},
     { "getPolicyFile",  "(I)I",
-        Dalvik_dalvik_system_UserFlowPolicy_getPolicyFile},
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicyFile},
     { "addPolicyFile",  "(II)V",
-        Dalvik_dalvik_system_UserFlowPolicy_addPolicyFile},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFile},
+    { "getPolicySocket",  "(I)I",
+        Dalvik_dalvik_agate_PolicyManagementModule_getPolicySocket},
+    { "addPolicySocket",  "(II)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicySocket},
     { "log",  "(Ljava/lang/String;)V",
-        Dalvik_dalvik_system_UserFlowPolicy_log},
+        Dalvik_dalvik_agate_PolicyManagementModule_log},
     { "logPathFromFd",  "(I)V",
-        Dalvik_dalvik_system_UserFlowPolicy_logPathFromFd},
+        Dalvik_dalvik_agate_PolicyManagementModule_logPathFromFd},
     { "logPeerFromFd",  "(I)V",
-        Dalvik_dalvik_system_UserFlowPolicy_logPeerFromFd},
+        Dalvik_dalvik_agate_PolicyManagementModule_logPeerFromFd},
     { NULL, NULL, NULL },
 };

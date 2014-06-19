@@ -32,6 +32,13 @@ typedef u4 (*HashCompute)(const void* item);
  */
 typedef int (*HashCompareFunc)(const void* tableItem, const void* looseItem);
 
+//start WITH_SAPPHIRE_AGATE
+/*
+ * Updates an entry in the table with/based on the values in the new item 
+ */
+typedef void (*HashUpdateFunc)(const void* oldItem, const void* newItem);
+//end WITH_SAPPHIRE_AGATE
+
 /*
  * This function will be used to free entries in the table.  This can be
  * NULL if no free is required, free(), or a custom function.
@@ -144,6 +151,15 @@ INLINE int dvmHashTableMemUsage(HashTable* pHashTable) {
  */
 void* dvmHashTableLookup(HashTable* pHashTable, u4 itemHash, void* item,
     HashCompareFunc cmpFunc, bool doAdd);
+
+//start WITH_SAPPHIRE_AGATE
+/*
+ * Does what dvmHashTableLookup function does but, in addition, it updates
+ * the old item using the supplied update function. 
+ */
+void* dvmHashTableLookupAndUpdate(HashTable* pHashTable, u4 itemHash, void* item,
+    HashCompareFunc cmpFunc, HashUpdateFunc updateFunc, bool doAdd);
+//end WITH_SAPPHIRE_AGATE
 
 /*
  * Remove an item from the hash table, given its "data" pointer.  Does not

@@ -1005,4 +1005,19 @@ struct DvmJniGlobals {
 
 extern struct DvmJniGlobals gDvmJni;
 
+// start WITH_SAPPHIRE_AGATE
+
+/*
+ * All fields are initialized to zero.
+ *
+ * (Storage allocated here must be freed by a subsystem shutdown function.)
+ * Structure used by the Agate modules.
+ */
+struct DvmAgateGlobals {
+    HashTable* socketPolicies;
+};
+
+extern struct DvmAgateGlobals gDvmAgate;
+// end WITH_SAPPHIRE_AGATE
+
 #endif  // DALVIK_GLOBALS_H_
