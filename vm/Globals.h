@@ -1014,6 +1014,7 @@ extern struct DvmJniGlobals gDvmJni;
  * Structure used by the Agate modules.
  */
 struct DvmAgateGlobals {
+    // TODO: replace this with a proper HashMap
     HashTable* socketPolicies;
 };
 

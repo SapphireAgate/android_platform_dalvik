@@ -159,6 +159,9 @@ void* dvmHashTableLookup(HashTable* pHashTable, u4 itemHash, void* item,
  */
 void* dvmHashTableLookupAndUpdate(HashTable* pHashTable, u4 itemHash, void* item,
     HashCompareFunc cmpFunc, HashUpdateFunc updateFunc, bool doAdd);
+
+/* Just returns the first entry for the hash */
+void* dvmHashMapLookup(HashTable* pHashTable, u4 itemHash);
 //end WITH_SAPPHIRE_AGATE
 
 /*

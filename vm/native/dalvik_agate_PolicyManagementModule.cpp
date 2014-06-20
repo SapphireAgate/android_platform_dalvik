@@ -72,6 +72,8 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
     u4 length = 0;
     bool result = true;
 
+    ALOGW("[cnFlow] sourceLabel = 0x%08x, destLabel = %08x", sourceLabel, destLabel);
+
     /* Get reader intersection */    
     // find the first policy
     while (sourceLabel > 0) {
@@ -94,6 +96,13 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
         i++;
     }
 
+    
+    //ALOGW("[canFlow] found the following allowed reader set:");
+
+    //for (i = 0; i < 2; i++) {
+    //    ALOGW("[cnFlow] reader: %d", out[i]);
+    //}
+
     /* Check if the reader set in policies encoded in destLabel
      * is included in the intersection computed above */
     i = 0;
@@ -112,7 +121,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
                  }
             }
         }
-        sourceLabel = sourceLabel >> 1;
+        destLabel = destLabel >> 1;
         i++;
     }
 
@@ -748,8 +757,11 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicySocket(const u4*
     int fd = (int)args[0]; // args[0] = the file descriptor
 
     dvmHashTableLock(gDvmAgate.socketPolicies);
-    l = (Label*) dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpL,
-                                    hashcmpLabels, hashupdateLabel, false);
+    l = (Label*) dvmHashMapLookup(gDvmAgate.socketPolicies, fd);
+
+    if (l != NULL)
+        tag = l->label;     
+
     dvmHashTableUnlock(gDvmAgate.socketPolicies); 
     
     if (tag) {

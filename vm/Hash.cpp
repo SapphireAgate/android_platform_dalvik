@@ -315,6 +315,30 @@ void* dvmHashTableLookupAndUpdate(HashTable* pHashTable, u4 itemHash, void* item
 
     return result;
 }
+
+void* dvmHashMapLookup(HashTable* pHashTable, u4 itemHash)
+{
+    HashEntry* pEntry;
+    HashEntry* pEnd;
+    void* result = NULL;
+
+    assert(pHashTable->tableSize > 0);
+
+    /* jump to the first entry and probe for a match */
+    pEntry = &pHashTable->pEntries[itemHash & (pHashTable->tableSize-1)];
+    pEnd = &pHashTable->pEntries[pHashTable->tableSize];
+    while (pEntry->data != NULL) {
+        if (pEntry->data != HASH_TOMBSTONE &&
+            pEntry->hashValue == itemHash)
+        {
+            /* match */
+            //ALOGD("+++ match on entry %d", pEntry - pHashTable->pEntries);
+            result = pEntry->data;
+            break;
+        }
+    }
+    return result;
+}
 //end WITH_SAPPHIRE_AGATE
 
 /*
