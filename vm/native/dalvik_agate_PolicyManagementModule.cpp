@@ -6,143 +6,84 @@
 #include "attr/xattr.h"
 #include "agate/AgatePriv.h"
 
+#include <cutils/atomic.h> /* use common Android atomic ops */
 #include <errno.h>
+#include <string>
+#include <algorithm>
+#include <set>
 
 #define FILE_XATTR_NAME "file.policy"
 
-/* Hardcode some policies? */
-Policy policies[6] = {{1, {1}, 0, {0}},
-                      {1, {2}, 0, {0}},
-                      {1, {3}, 0, {0}},
-                      {2, {1, 2}, 0, {0}},
-                      {2, {1, 3}, 0, {0}},
-                      {2, {2, 3}, 0, {0}}};
-
-/* Gets the intersection of two vectors */
-// TODO: assume sorted vectors
-static int intersect(u4 v[], u4 n, u4 u[], u4 m, u4 out[])
-{
-    u4 i = 0, j = 0, k = 0;
-    while ((i < n) && (j < m))
-    {
-        if (v[i] < u[j])
-        {
-            i++;
-        }
-        else if (v[i] > u[j])
-        {
-            j++;
-        }
-        else
-        {
-            out[k] = v[i];
-            i++;
-            j++;
-            k++;
-        }
-    }
-    return k;
-}
-
 
 /*
- * TODO: For now, a label is a set of up to 32 unique policies.
- * Each set bit in the label gives the ID of a policy. When a
- * new policy is created in the system, a unique, multiple of 2 ID has to be
- * generated. 
- * We will change the encoding style to have the label point to a
- * cumulative policy. This will not limit the number of policies in the
- * system but might make policy merging more expensive.
+ * Determines if data is allowed to flow from a policy to another 
  *
- * public static boolean canFlow(int sourceLabel, int destLabel)
+ * public static boolean canFlow(int fromPolicy, int toPolicy)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
     JValue* pResult)
 {
-    u4 sourceLabel = args[0];
-    u4 destLabel = args[1];
+    Policy* fromPolicy = (Policy*) args[0];
+    Policy* toPolicy = (Policy*) args[1];
+    bool result;
 
-    // Confidentiality: Check if intersection of readers
-    // of policies in sourceLabel include the reunion of
-    // readers in the policies encoded by the destLabel.
+    ALOGW("AgateLog: canFlow");
 
-    u4 out[2]; // TODO: assume maximum of 2 readers
-
-    u4 i = 0, j = 0, k = 0;
-    u4 length = 0;
-    bool result = true;
-
-    ALOGW("[cnFlow] sourceLabel = 0x%08x, destLabel = %08x", sourceLabel, destLabel);
-
-    /* Get reader intersection */    
-    // find the first policy
-    while (sourceLabel > 0) {
-	if (sourceLabel % 2 != 0) {
-            length = policies[i].n_readers;
-            for (j = 0; j < length; j++)
-                out[j] = policies[i].readers[j];
-            break;
-        }
-        sourceLabel = sourceLabel >> 1;
-        i++;
+    /* TODO: Hack! If no policy */
+    if (fromPolicy == NULL || toPolicy == NULL) {
+        RETURN_BOOLEAN(true);
+        return;
     }
 
-    // intersect with the rest of the policies
-    while (sourceLabel > 0) {
-	if (sourceLabel % 2 != 0) {
-            length = intersect(policies[i].readers, policies[i].n_readers, out, length, out);
-        }
-        sourceLabel = sourceLabel >> 1;
-        i++;
-    }
+    /*
+     * Confidentiality check: Check if readers in source policy
+     * include all readers in the destination policy.
+     */
 
-    
-    //ALOGW("[canFlow] found the following allowed reader set:");
+    std::set<std::string> fromReaders = *(fromPolicy->readers);
+    std::set<std::string> toReaders = *(toPolicy->readers);
 
-    //for (i = 0; i < 2; i++) {
-    //    ALOGW("[cnFlow] reader: %d", out[i]);
-    //}
-
-    /* Check if the reader set in policies encoded in destLabel
-     * is included in the intersection computed above */
-    i = 0;
-    while (destLabel > 0) {
-	if (destLabel % 2 != 0) {
-            for (j = 0; j < policies[i].n_readers; j++) {
-                result = false;
-                for (k = 0; k < length; k++)
-                    if (policies[i].readers[j] == out[k]) {
-                        result = true;
-                        break;
-                    }
-                 if (result == false) {
-                     RETURN_BOOLEAN(false);
-                     return;
-                 }
-            }
-        }
-        destLabel = destLabel >> 1;
-        i++;
-    }
+    result = std::includes(fromReaders.begin(), fromReaders.end(),
+                  toReaders.begin(), toReaders.end());
 
     RETURN_BOOLEAN(result);
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyString(String str, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyString(String str, String[] readers, String[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString(const u4* args,
     JValue* pResult)
 {
     StringObject *strObj = (StringObject*) args[0];
-    u4 poid = args[1];
     ArrayObject *value = NULL;
 
-    if (strObj) {
-    value = strObj->array();
-	value->taint.tag |= poid;
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) _create_policy(readers, writers);
+    ALOGW("AgateLog: addPolicyString created policy: %d", (u4)p);
+
+    std::set<std::string> v = *(p->readers);
+
+    for (std::set<std::string>::iterator i = v.begin(); i != v.end(); i++) {
+        std::string e = *i;
+        ALOGW("AgateLog: addPolicyString reader: %s", (*i).c_str());
     }
+
+    if (strObj) {
+        value = strObj->array();
+        if (value->taint.tag == 0) {
+	    value->taint.tag = (u4)p;
+        } else {
+            // merge the two policies
+            u4 m = _merge_policies(value->taint.tag, (u4)p);
+            _free_policy(value->taint.tag);
+            _free_policy((u4)p);
+            value->taint.tag = m;
+        }
+    }
+
     RETURN_VOID();
 }
 
@@ -752,15 +693,15 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFile(const u4* a
 static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicySocket(const u4* args,
     JValue* pResult)
 {
-    Label* l;
+    Tag* t;
     u4 tag = 0;
     int fd = (int)args[0]; // args[0] = the file descriptor
 
     dvmHashTableLock(gDvmAgate.socketPolicies);
-    l = (Label*) dvmHashMapLookup(gDvmAgate.socketPolicies, fd);
+    t = (Tag*) dvmHashMapLookup(gDvmAgate.socketPolicies, fd);
 
-    if (l != NULL)
-        tag = l->label;     
+    if (t != NULL)
+        tag = t->tag; 
 
     dvmHashTableUnlock(gDvmAgate.socketPolicies); 
     
@@ -772,23 +713,28 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicySocket(const u4*
 }
 
 /*
- * public static int addPolicySocket(int fd, u4 tag)
+ * public static int addPolicySocket(int fd, String[] readers, String[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicySocket(const u4* args,
     JValue* pResult)
 {
     int fd = (int)args[0]; // args[0] = the file descriptor
-    u4 tag = args[1];      // args[1] = the taint tag
+    //ArrayObject *value = NULL;
 
-    Label* tmpL = (Label*) malloc(sizeof(Label));
-    tmpL->label = tag;
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
 
-    if (tag) {
+    Policy* p = (Policy*) _create_policy(readers, writers);
+
+    Tag* tmpT = (Tag*) malloc(sizeof(Tag));
+    tmpT->tag = (u4)p;
+
+    if (tmpT) {
         dvmHashTableLock(gDvmAgate.socketPolicies);
-        dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpL,
-                                    hashcmpLabels, hashupdateLabel, true);
+        dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpT,
+                                    hashcmpTags, hashupdateTag, true);
         ALOGI("AgateLog: [addPolicySocket(%d)] adding 0x%08x",
-    		fd, tag);
+    		fd, tmpT->tag);
         dvmHashTableUnlock(gDvmAgate.socketPolicies); 
     }
 
@@ -863,7 +809,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_logPeerFromFd(const u4* a
 const DalvikNativeMethod dvm_dalvik_agate_PolicyManagementModule[] = {
     { "canFlow",  "(II)Z",
         Dalvik_dalvik_agate_PolicyManagementModule_canFlow},
-    { "addPolicyString",  "(Ljava/lang/String;I)V",
+    { "addPolicyString",  "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString},
     { "addPolicyObjectArray",  "([Ljava/lang/Object;I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray},
@@ -943,7 +889,7 @@ const DalvikNativeMethod dvm_dalvik_agate_PolicyManagementModule[] = {
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFile},
     { "getPolicySocket",  "(I)I",
         Dalvik_dalvik_agate_PolicyManagementModule_getPolicySocket},
-    { "addPolicySocket",  "(II)V",
+    { "addPolicySocket",  "(I[Ljava/lang/String;[Ljava/lang/String;)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicySocket},
     { "log",  "(Ljava/lang/String;)V",
         Dalvik_dalvik_agate_PolicyManagementModule_log},

@@ -15,7 +15,7 @@ bool dvmAgateStartup()
      */
     gDvmAgate.socketPolicies = dvmHashTableCreate(
 	    dvmHashSize(AGATE_SOCKET_POLICIES_TABLE_SIZE), 
-	    (HashFreeFunc) freeLabel);
+	    (HashFreeFunc) freeTag);
 
     if (gDvmAgate.socketPolicies == NULL)
         return false;
