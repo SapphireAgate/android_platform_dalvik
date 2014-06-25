@@ -1,6 +1,6 @@
 
-#ifndef _DALVIK_AGATE_PRIV
-#define _DALVIK_AGATE_PRIV
+#ifndef _DALVIK_AGATE_POLICY
+#define _DALVIK_AGATE_POLICY
 
 #include "Dalvik.h"
 
@@ -24,14 +24,16 @@ typedef struct Policy {
 } Policy;
 
 /* Creates a policy for the given reader/writer vectors */
-u4 _create_policy(ArrayObject* readers, ArrayObject* writers);
+u4 agate_create_policy(ArrayObject* readers, ArrayObject* writers);
 /* De-allocates a policy */
-void _delete_policy(u4 tag);
+void agate_delete_policy(u4 tag);
 /* Checks if there are no more references to this policy, in
  * which case it deletes the policy */
-void _free_policy(u4 tag);
+void agate_free_policy(u4 tag);
 /* Merges two policies */
-u4 _merge_policies(u4 tag1, u4 tag2);
+u4 agate_merge_policies(u4 tag1, u4 tag2);
+/* Policy flow check  */
+bool agate_can_flow(u4 tag1, u4 tag2);
 
 
 /* A Tag is a pointer to a policy. */
@@ -46,4 +48,4 @@ void freeTag(void* t);
 /* function of type HashUpdateFunc */
 void hashupdateTag(const void* oldTag, const void* newTag);
 
-#endif /*_DALVIK_AGATEi_PRIV */
+#endif /*_DALVIK_AGATEi_POLICY */

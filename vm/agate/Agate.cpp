@@ -1,5 +1,5 @@
 #include "Dalvik.h"
-#include "agate/AgatePriv.h"
+#include "agate/AgatePolicy.h"
 
 /* 
  * Functions to initialize/shutdown Agate modules
@@ -28,5 +28,6 @@ void dvmAgateShutdown()
     /*
      * Deallocates the socket policies table. 
      */
+    // TODO? Deallocate all policies?
     dvmHashTableFree(gDvmAgate.socketPolicies);
 }

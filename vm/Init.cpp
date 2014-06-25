@@ -1123,6 +1123,10 @@ static int processOptions(int argc, const char* const argv[],
             } else {
                 /* disable JIT if it was enabled by default */
                 gDvm.executionMode = kExecutionModeInterpFast;
+//start WITH_SAPPHIRE_AGATE
+                // set default interpreter to portable
+                //gDvm.executionMode = kExecutionModeInterpPortable;
+//end WITH_SAPPHIRE_AGATE
             }
 
         } else if (strncmp(argv[i], "-Xlockprofthreshold:", 20) == 0) {

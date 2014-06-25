@@ -1,5 +1,5 @@
 #include "Dalvik.h"
-#include "agate/AgatePriv.h"
+#include "agate/AgatePolicy.h"
 
 #include <set>
 #include <algorithm>
@@ -9,7 +9,7 @@
 /* Functions working on Policies */
 
 /* Creates a policy for the given reader/writer vectors */
-u4 _create_policy(ArrayObject* readers, ArrayObject* writers)
+u4 agate_create_policy(ArrayObject* readers, ArrayObject* writers)
 {
     /* Allocate space for a new policy */
     Policy* p = (Policy*) malloc(sizeof(Policy));
@@ -29,7 +29,7 @@ u4 _create_policy(ArrayObject* readers, ArrayObject* writers)
 }
 
 /* De-allocates a policy */
-void _delete_policy(u4 tag)
+void agate_delete_policy(u4 tag)
 {
     Policy* p = (Policy*) tag;
 
@@ -45,16 +45,16 @@ void _delete_policy(u4 tag)
 
 /* Checks if there are no more references to this policy, in
  * which case it deletes the policy */
-void _free_policy(u4 tag)
+void agate_free_policy(u4 tag)
 {
     Policy* p = (Policy*) tag;
     if (android_atomic_dec(&(p->no_references)) == 1) {
-         _delete_policy(tag);
+         agate_delete_policy(tag);
     }
 }
 
 /* Merges two policies */
-u4 _merge_policies(u4 tag1, u4 tag2)
+u4 agate_merge_policies(u4 tag1, u4 tag2)
 {
     Policy* p1 = (Policy*) tag1;
     Policy* p2 = (Policy*) tag2;
@@ -79,6 +79,35 @@ u4 _merge_policies(u4 tag1, u4 tag2)
     return (u4)p;    
 }
 
+/* Checks if can flow from tag1 to tag2 */
+bool agate_can_flow(u4 tag1, u4 tag2)
+{
+    Policy* fromPolicy = (Policy*) tag1;
+    Policy* toPolicy = (Policy*) tag2;
+    bool result;
+
+    ALOGW("AgateLog: canFlow");
+
+    /* TODO: Hack! If no policy */
+    if (fromPolicy == NULL || toPolicy == NULL) {
+        return true;
+    }
+
+    /*
+     * Confidentiality check: Check if readers in source policy
+     * include all readers in the destination policy.
+     */
+
+    std::set<std::string> fromReaders = *(fromPolicy->readers);
+    std::set<std::string> toReaders = *(toPolicy->readers);
+
+    result = std::includes(fromReaders.begin(), fromReaders.end(),
+                  toReaders.begin(), toReaders.end());
+
+    return result;
+}
+
+
 /* Functions working on Tags */
 
 /* function of type HashCompareFunc */
@@ -93,7 +122,7 @@ int hashcmpTags(const void* p1, const void* p2)
 void freeTag(void* t)
 {
     Tag* tag = (Tag*) t;
-    _free_policy(tag->tag);
+    agate_free_policy(tag->tag);
     if (tag != NULL) {
 	free(tag);
     }
@@ -106,9 +135,9 @@ void hashupdateTag(const void* oldTag, const void* newTag)
     Tag* n = (Tag*) newTag;
 
     // merge the two policies
-    u4 m = _merge_policies(o->tag, n->tag);
-    _free_policy(o->tag);
-    _free_policy(n->tag); // TODO: check this
+    u4 m = agate_merge_policies(o->tag, n->tag);
+    agate_free_policy(o->tag);
+    agate_free_policy(n->tag); // TODO: check this
 
     o->tag = m;
 

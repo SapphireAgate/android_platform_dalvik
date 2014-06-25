@@ -4,7 +4,7 @@
 #include "Dalvik.h"
 #include "native/InternalNativePriv.h"
 #include "attr/xattr.h"
-#include "agate/AgatePriv.h"
+#include "agate/AgatePolicy.h"
 
 #include <cutils/atomic.h> /* use common Android atomic ops */
 #include <errno.h>
@@ -23,207 +23,274 @@
 static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
     JValue* pResult)
 {
-    Policy* fromPolicy = (Policy*) args[0];
-    Policy* toPolicy = (Policy*) args[1];
-    bool result;
-
-    ALOGW("AgateLog: canFlow");
-
-    /* TODO: Hack! If no policy */
-    if (fromPolicy == NULL || toPolicy == NULL) {
-        RETURN_BOOLEAN(true);
-        return;
-    }
-
-    /*
-     * Confidentiality check: Check if readers in source policy
-     * include all readers in the destination policy.
-     */
-
-    std::set<std::string> fromReaders = *(fromPolicy->readers);
-    std::set<std::string> toReaders = *(toPolicy->readers);
-
-    result = std::includes(fromReaders.begin(), fromReaders.end(),
-                  toReaders.begin(), toReaders.end());
-
+    bool result = agate_can_flow(args[0], args[1]);
     RETURN_BOOLEAN(result);
+}
+
+/* Add policy to String */
+static void _add_policy_string(StringObject* strObj, u4 tag) {
+    ArrayObject *value = NULL;
+ 
+    if (strObj) {
+        value = strObj->array();
+        if (value->taint.tag == 0) {
+	    value->taint.tag = tag;
+        } else {
+            // merge the two policies
+            u4 m = agate_merge_policies(value->taint.tag, tag);
+            agate_free_policy(value->taint.tag);
+            agate_free_policy(tag);
+            value->taint.tag = m;
+        }
+    }
 }
 
 /*
  * public static void addPolicyString(String str, String[] readers, String[] writers)
  */
-static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__(const u4* args,
     JValue* pResult)
 {
     StringObject *strObj = (StringObject*) args[0];
-    ArrayObject *value = NULL;
 
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    Policy* p = (Policy*) _create_policy(readers, writers);
-    ALOGW("AgateLog: addPolicyString created policy: %d", (u4)p);
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+    //ALOGW("AgateLog: addPolicyString created policy: %d", (u4)p);
+    ALOGW("AgateLog: addPolicyString__");
 
-    std::set<std::string> v = *(p->readers);
+    //std::set<std::string> v = *(p->readers);
+    //for (std::set<std::string>::iterator i = v.begin(); i != v.end(); i++) {
+    //    std::string e = *i;
+    //    ALOGW("AgateLog: addPolicyString reader: %s", (*i).c_str());
+    //}
 
-    for (std::set<std::string>::iterator i = v.begin(); i != v.end(); i++) {
-        std::string e = *i;
-        ALOGW("AgateLog: addPolicyString reader: %s", (*i).c_str());
-    }
+    _add_policy_string(strObj, (u4)p);
 
-    if (strObj) {
-        value = strObj->array();
-        if (value->taint.tag == 0) {
-	    value->taint.tag = (u4)p;
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyString(String str, int tag)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__I(const u4* args,
+    JValue* pResult)
+{
+    StringObject *strObj = (StringObject*) args[0];
+
+    ALOGW("AgateLog: addPolicyString__I");
+    _add_policy_string(strObj, args[1]);
+    RETURN_VOID();
+}
+
+/* Adds a policy on an array */
+static void _add_policy_array(ArrayObject* arr, u4 tag)
+{
+    if (arr) {
+        if (arr->taint.tag == 0) {
+	    arr->taint.tag = tag;
         } else {
             // merge the two policies
-            u4 m = _merge_policies(value->taint.tag, (u4)p);
-            _free_policy(value->taint.tag);
-            _free_policy((u4)p);
-            value->taint.tag = m;
+            u4 m = agate_merge_policies(arr->taint.tag, tag);
+            agate_free_policy(arr->taint.tag);
+            agate_free_policy(tag);
+            arr->taint.tag = m;
         }
     }
-
-    RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyObjectArray(Object[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyObjectArray(Object[] array, String[] readers, String[] writers)
  */
-static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+
+    _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyBooleanArray(boolean[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyObjectArray(Object[] array, int tag)
  */
-static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__I(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+    _add_policy_array(arr, args[1]);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyCharArray(char[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyBooleanArray(boolean[] array, String[] readers, String[] writers)
  */
-static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+
+    _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyByteArray(byte[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyBooleanArray(boolean[] array, int tag)
  */
-static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray(const u4* args,
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__I(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+    _add_policy_array(arr, args[1]);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyIntArray(int[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyCharArray(char[] array, String[] readers, String[] writers)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__(const u4* args,
+    JValue* pResult)
+{
+    ArrayObject *arr = (ArrayObject *) args[0];
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+    _add_policy_array(arr, (u4)p);
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyCharArray(char[] array, int tag)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__I(const u4* args,
+    JValue* pResult)
+{
+    ArrayObject *arr = (ArrayObject *) args[0];
+    _add_policy_array(arr, args[1]);
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyByteArray(byte[] array, String[] readers, String[] writers)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__(const u4* args,
+    JValue* pResult)
+{
+    ArrayObject *arr = (ArrayObject *) args[0];
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+    _add_policy_array(arr, (u4)p);
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyByteArray(byte[] array, int tag)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__I(const u4* args,
+    JValue* pResult)
+{
+    ArrayObject *arr = (ArrayObject *) args[0];
+    _add_policy_array(arr, args[1]);
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyIntArray(int[] array, String[] readers, String[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyIntArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+    _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyShortArray(short[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyShortArray(short[] array, String[] readers, String[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShortArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+    _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyLongArray(long[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyLongArray(long[] array, String[] readers, String[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLongArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+    _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyFloatArray(float[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyFloatArray(float[] array, String[] readers, String[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloatArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+    _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
- * public static void addPolicyDoubleArray(double[] array, (int policyId,) int[] readers, int[] writers)
+ * public static void addPolicyDoubleArray(double[] array, String[] readers, String[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDoubleArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
-    u4 poid = args[1];
-    if (arr) {
-	arr->taint.tag |= poid;
-    }
+
+    ArrayObject* readers = (ArrayObject*) args[1];
+    ArrayObject* writers = (ArrayObject*) args[2];
+
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
+    _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
 
 /*
- * TODO: for now select a hard-coded policy
  * public static void addPolicyBoolean(boolean val, (int policyId,) int[] readers, int[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBoolean(const u4* args,
@@ -724,7 +791,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicySocket(const u4*
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    Policy* p = (Policy*) _create_policy(readers, writers);
+    Policy* p = (Policy*) agate_create_policy(readers, writers);
 
     Tag* tmpT = (Tag*) malloc(sizeof(Tag));
     tmpT->tag = (u4)p;
@@ -810,15 +877,25 @@ const DalvikNativeMethod dvm_dalvik_agate_PolicyManagementModule[] = {
     { "canFlow",  "(II)Z",
         Dalvik_dalvik_agate_PolicyManagementModule_canFlow},
     { "addPolicyString",  "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)V",
-        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__},
+    { "addPolicyString",  "(Ljava/lang/String;I)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__I},
+    { "addPolicyObjectArray",  "([Ljava/lang/Object;[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__},
     { "addPolicyObjectArray",  "([Ljava/lang/Object;I)V",
-        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__I},
+    { "addPolicyBooleanArray",  "([Z[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__},
     { "addPolicyBooleanArray",  "([ZI)V",
-        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__I},
+    { "addPolicyCharArray",  "([C[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__},
     { "addPolicyCharArray",  "([CI)V",
-        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__I},
+    { "addPolicyByteArray",  "([B[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__},
     { "addPolicyByteArray",  "([BI)V",
-        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray},
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__I},
     { "addPolicyIntArray",  "([II)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyIntArray},
     { "addPolicyShortArray",  "([SI)V",
