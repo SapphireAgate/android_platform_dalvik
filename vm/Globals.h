@@ -1015,7 +1015,7 @@ extern struct DvmJniGlobals gDvmJni;
  */
 struct DvmAgateGlobals {
     // TODO: replace this with a proper HashMap
-    HashTable* socketPolicies;
+    HashTable* socketPolicies; // maps an open socket (fd) to a policy
 };
 
 extern struct DvmAgateGlobals gDvmAgate;
