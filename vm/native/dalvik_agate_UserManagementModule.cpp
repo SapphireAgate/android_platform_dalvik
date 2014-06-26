@@ -3,7 +3,7 @@
 #include "agate/AgateUser.h"
 #include <sys/types.h> 
 
-/*
+
 static void Dalvik_dalvik_agate_UserManagementModule_getUserName(const u4* args,
     JValue* pResult)
 {
@@ -11,11 +11,11 @@ static void Dalvik_dalvik_agate_UserManagementModule_getUserName(const u4* args,
     if(res == NULL) {
         RETURN_PTR(NULL);
     } else {
-        StringObject *user = (*env)->NewStringUTF(env,res);
+        StringObject *user = dvmCreateStringFromCstr(res);
 	RETURN_PTR(user);
     }
 }
-*/
+
 
 /*
  * public static int loginImpl(String user, String password)
@@ -83,8 +83,8 @@ static void Dalvik_dalvik_agate_UserManagementModule_addUserToGroup(const u4* ar
 }
 
 const DalvikNativeMethod dvm_dalvik_agate_UserManagementModule[] = {
-  /*        { "getUserName", "()Ljava/lang/String;",
-	    Dalvik_dalvik_agate_UserManagementModule_getUserName},*/
+        { "getUserName", "()Ljava/lang/String;",
+        Dalvik_dalvik_agate_UserManagementModule_getUserName},
     	{ "login",  "(Ljava/lang/String;Ljava/lang/String;)I",
         Dalvik_dalvik_agate_UserManagementModule_login},
         { "addUser", "(Ljava/lang/String;)I",
