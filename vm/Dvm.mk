@@ -203,6 +203,7 @@ ifeq ($(WITH_TAINT_TRACKING), true)
 	LOCAL_SRC_FILES += native/dalvik_agate_PolicyManagementModule.cpp
 	LOCAL_SRC_FILES += agate/Agate.cpp
 	LOCAL_SRC_FILES += agate/AgatePolicy.cpp
+	LOCAL_SRC_FILES += agate/AgateUser.cpp
 endif
 
 # TODO: this is the wrong test, but what's the right one?
