@@ -12,6 +12,7 @@ static void Dalvik_dalvik_agate_UserManagementModule_getUserName(const u4* args,
         RETURN_PTR(NULL);
     } else {
         StringObject *user = dvmCreateStringFromCstr(res);
+	dvmReleaseTrackedAlloc((Object *)user, NULL);
 	RETURN_PTR(user);
     }
 }
@@ -87,7 +88,7 @@ const DalvikNativeMethod dvm_dalvik_agate_UserManagementModule[] = {
         Dalvik_dalvik_agate_UserManagementModule_getUserName},
     	{ "login",  "(Ljava/lang/String;Ljava/lang/String;)I",
         Dalvik_dalvik_agate_UserManagementModule_login},
-        { "addUser", "(Ljava/lang/String;)I",
+        { "addUser", "(Ljava/lang/String;Ljava/lang/String;)I",
 	  Dalvik_dalvik_agate_UserManagementModule_addUser},
     	{ "addGroup",  "(Ljava/lang/String;)I",
         Dalvik_dalvik_agate_UserManagementModule_addGroup},
