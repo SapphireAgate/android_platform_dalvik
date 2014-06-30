@@ -204,6 +204,7 @@ ifeq ($(WITH_TAINT_TRACKING), true)
 	LOCAL_SRC_FILES += agate/Agate.cpp
 	LOCAL_SRC_FILES += agate/AgatePolicy.cpp
 	LOCAL_SRC_FILES += agate/AgateUser.cpp
+	LOCAL_SRC_FILES += agate/AgateJni.cpp
 endif
 
 # TODO: this is the wrong test, but what's the right one?

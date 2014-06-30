@@ -6,7 +6,7 @@
 #include <string>
 #include <cutils/atomic.h> /* use common Android atomic ops */
 
-/* Functions working on Policies */
+/* General functions to work with  Policies: merge, create, delete, can flow.  */
 
 /* Creates a policy for the given reader/writer vectors */
 u4 agate_create_policy(ArrayObject* readers, ArrayObject* writers)
@@ -107,6 +107,41 @@ bool agate_can_flow(u4 tag1, u4 tag2)
     return result;
 }
 
+/* Add a policy on a socket */
+void agate_add_policy_on_socket(int fd, u4 tag)
+{
+    Tag* tmpT = (Tag*) malloc(sizeof(Tag));
+    tmpT->tag = tag;
+
+    if (tmpT) {
+        dvmHashTableLock(gDvmAgate.socketPolicies);
+        dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpT,
+                                    hashcmpTags, hashupdateTag, true);
+        ALOGI("AgateLog: [addPolicySocket(%d)] adding 0x%08x",
+                fd, tmpT->tag);
+        dvmHashTableUnlock(gDvmAgate.socketPolicies);
+    }
+}
+
+/* Retrieve the policy that has been set on a socket */
+u4 agate_get_policy_on_socket(int fd)
+{
+    u4 tag = 0;
+
+    dvmHashTableLock(gDvmAgate.socketPolicies);
+    Tag* t = (Tag*) dvmHashMapLookup(gDvmAgate.socketPolicies, fd);
+
+    if (t != NULL)
+        tag = t->tag;
+
+    dvmHashTableUnlock(gDvmAgate.socketPolicies);
+
+    if (tag) {
+        ALOGI("AgateLog: [getPolicySocket(%d)] = 0x%08x", fd, tag);
+    }
+
+    return tag;
+}
 
 /* Functions working on Tags */
 
