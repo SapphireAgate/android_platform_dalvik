@@ -34,6 +34,10 @@ void agate_free_policy(u4 tag);
 u4 agate_merge_policies(u4 tag1, u4 tag2);
 /* Policy flow check  */
 bool agate_can_flow(u4 tag1, u4 tag2);
+/* Add a policy on a socket */
+void agate_add_policy_on_socket(int fd, u4 tag);
+/* Retrieve the policy that has been set on a socket */
+u4 agate_get_policy_on_socket(int fd);
 
 
 /* A Tag is a pointer to a policy. */

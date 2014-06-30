@@ -760,21 +760,8 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFile(const u4* a
 static void Dalvik_dalvik_agate_PolicyManagementModule_getPolicySocket(const u4* args,
     JValue* pResult)
 {
-    Tag* t;
-    u4 tag = 0;
     int fd = (int)args[0]; // args[0] = the file descriptor
-
-    dvmHashTableLock(gDvmAgate.socketPolicies);
-    t = (Tag*) dvmHashMapLookup(gDvmAgate.socketPolicies, fd);
-
-    if (t != NULL)
-        tag = t->tag; 
-
-    dvmHashTableUnlock(gDvmAgate.socketPolicies); 
-    
-    if (tag) {
-	ALOGI("AgateLog: [getPolicySocket(%d)] = 0x%08x", fd, tag);
-    }
+    u4 tag = agate_get_policy_on_socket(fd);
 
     RETURN_INT(tag);
 }
@@ -786,24 +773,12 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicySocket(const u4*
     JValue* pResult)
 {
     int fd = (int)args[0]; // args[0] = the file descriptor
-    //ArrayObject *value = NULL;
 
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
     Policy* p = (Policy*) agate_create_policy(readers, writers);
-
-    Tag* tmpT = (Tag*) malloc(sizeof(Tag));
-    tmpT->tag = (u4)p;
-
-    if (tmpT) {
-        dvmHashTableLock(gDvmAgate.socketPolicies);
-        dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpT,
-                                    hashcmpTags, hashupdateTag, true);
-        ALOGI("AgateLog: [addPolicySocket(%d)] adding 0x%08x",
-    		fd, tmpT->tag);
-        dvmHashTableUnlock(gDvmAgate.socketPolicies); 
-    }
+    agate_add_policy_on_socket(fd, (u4)p);
 
     RETURN_VOID();
 }

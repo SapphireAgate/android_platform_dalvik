@@ -293,6 +293,14 @@ void dvmJniShutdown() {
     dvmClearReferenceTable(&gDvm.jniPinRefTable);
 }
 
+// begin WITH_SAPPHIRE_AGATE
+/* Functions to retrieve Dalvik VM objects from JNI object references */
+Object* dvmJniGetObject(JNIEnv* env, jobject jobj) {
+    ScopedJniThreadState ts(env);
+    return dvmDecodeIndirectRef(ts.self(), jobj);
+}
+// end WITH_SAPPHIRE_AGATE
+
 /*
  * Find the JNIEnv associated with the current thread.
  *
