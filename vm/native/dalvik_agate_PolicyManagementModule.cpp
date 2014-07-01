@@ -58,7 +58,6 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__(const u
 
     Policy* p = (Policy*) agate_create_policy(readers, writers);
     //ALOGW("AgateLog: addPolicyString created policy: %d", (u4)p);
-    ALOGW("AgateLog: addPolicyString__");
 
     //std::set<std::string> v = *(p->readers);
     //for (std::set<std::string>::iterator i = v.begin(); i != v.end(); i++) {
@@ -78,8 +77,6 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__I(const 
     JValue* pResult)
 {
     StringObject *strObj = (StringObject*) args[0];
-
-    ALOGW("AgateLog: addPolicyString__I");
     _add_policy_string(strObj, args[1]);
     RETURN_VOID();
 }
