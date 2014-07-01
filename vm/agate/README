@@ -1,1 +1,13 @@
-This folder contains the implementation of Agate C library.
+This folder contains the implementation of Agate C/C++ library.
+
+The library is implemented in file(s):
+    -  AgatePolicy.cpp
+    -  AgateUser.cpp.
+
+A wrapper for JNI invoked native methods is provided in file(s):
+    -  AgateJni.cpp
+
+A wrapper for dalvik invoked native methods is provided in file(s):
+    -  ../native/dalvik_agate_PolicyManagementModule.cpp
+    -  ../native/dalvik_agate_UserManagementModule.cpp
+

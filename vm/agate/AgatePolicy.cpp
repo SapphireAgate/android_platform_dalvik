@@ -86,8 +86,6 @@ bool agate_can_flow(u4 tag1, u4 tag2)
     Policy* toPolicy = (Policy*) tag2;
     bool result;
 
-    ALOGW("AgateLog: canFlow");
-
     /* TODO: Hack! If no policy */
     if (fromPolicy == NULL || toPolicy == NULL) {
         return true;

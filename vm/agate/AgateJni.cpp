@@ -1,17 +1,17 @@
 #include "Dalvik.h"
 #include "agate/AgatePolicy.h"
+#include "agate/AgateUser.h"
 #include "agate/AgateJniInternal.h"
 #include "JniInternal.h"
 
 /**
  *  Helper functions
  */
-static char* _int_to_byte_array(int value) {
-    char* bytes = (char*) malloc(sizeof(int));
+static char* _int_to_byte_array(char* dest, int value) {
     for (u4 i = 0; i < sizeof(int); i++) {
-        bytes[i] = (char)((value >> ((sizeof(int) - i - 1) * 8)) & 0xff);
+        *dest++ = (char)((value >> ((sizeof(int) - i - 1) * 8)) & 0xff);
     }
-    return bytes;
+    return dest;
 }
 
 static int _int_from_byte_array(char* bytes) {
@@ -25,17 +25,13 @@ static int _int_from_byte_array(char* bytes) {
 
 static char* _copy_bytes(char* dest, char* src, u4 n) {
     for (u4 i = 0; i < n; i++) {
-        ALOGW("byte[%d] = %c", i, *src);
         *dest++ = *src++;
     }
     return dest;
 }
 
 static char* _add_int(char* dest, int val) {
-    char* l = _int_to_byte_array(val);
-    dest = _copy_bytes(dest, l, sizeof(int));
-    free(l);
-    return dest;
+    return _int_to_byte_array(dest, val);
 }
 
 static char* _get_int(char* dest, int* val) {
@@ -199,4 +195,9 @@ void agateJniAddStringPolicy(JNIEnv* env) {
 void agateJniAddArrayPolicy(JNIEnv* env, jobject obj, int tag) {
     ArrayObject* arrObj = (ArrayObject*) dvmJniGetObject(env, obj);
     arrObj->taint.tag = (u4)tag;
+}
+
+/* Get the identity of the logged in user */
+char* agateJniGetCertificate(JNIEnv* env) {
+    return agate_get_user();
 }
