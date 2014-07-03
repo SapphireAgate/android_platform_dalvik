@@ -12,37 +12,50 @@
 #define AGATE_TAG_POLICIES_TABLE_SIZE 32 /* number of policies */
 
 
-/* The Policy structure.
+/* The structure of a policy.
  *
  * Currently, a policy is defined in terms of User principals. A User
  * principal has a unique username. 
+ *
+ *  We define PolicyObjects as Objects and take advantage
+ *  of the GC to deallocate them when they are no longer
+ *  in scope, like normal Java Objects.
+ *
+ *  The PolicyObject is not really an Object because they have no
+ *  class to define the layout of its fields in memory (po->clazz is NULL).
+ *  Therefore we need to modify a bit the GC to tell it how to scan
+ *  these objects (right now the GC relies on the fact that each Object
+ *  it needs to garbage collect has the class field set).
  */
-typedef struct Policy {
-    std::set<std::string>* readers;   // ordered set of readers (for now) Users (will be Groups)
-    std::set<std::string>* writers;   // ordered set of writers (for now) Users (will be Groups)
-    volatile int32_t no_references;   // number of references to this policy (useful for GC)
-} Policy;
+// TODO: find out why there is a lock inside the Object struct
+struct PolicyObject : Object {
+    u4* readers;  // array of ids that specify who can read the data
+                  // tagged with this policy
+    u4 n_r;       // number of readers
+    u4* writers;
+    u4 n_w;
+};
+
 
 /* Creates a policy for the given reader/writer vectors */
-u4 agate_create_policy(ArrayObject* readers, ArrayObject* writers);
-/* De-allocates a policy */
-void agate_delete_policy(u4 tag);
-/* Checks if there are no more references to this policy, in
- * which case it deletes the policy */
-void agate_free_policy(u4 tag);
+PolicyObject* agate_create_policy(ArrayObject* readers, ArrayObject* writers);
+/* Prints the given policy */
+void agate_print_policy(PolicyObject* p);
+/* Un-tracks a policy */
+void agate_release_policy(PolicyObject* p);
 /* Merges two policies */
-u4 agate_merge_policies(u4 tag1, u4 tag2);
-/* Policy flow check  */
-bool agate_can_flow(u4 tag1, u4 tag2);
+PolicyObject* agate_merge_policies(PolicyObject* p1, PolicyObject* p2);
+/* Policy flow check */
+bool agate_can_flow(PolicyObject* p1, PolicyObject* p2);
 /* Add a policy on a socket */
-void agate_add_policy_on_socket(int fd, u4 tag);
+void agate_add_policy_on_socket(int fd, PolicyObject* p);
 /* Retrieve the policy that has been set on a socket */
-u4 agate_get_policy_on_socket(int fd);
+PolicyObject* agate_get_policy_on_socket(int fd);
 
 
 /* A Tag is a pointer to a policy. */
 typedef struct Tag {
-    u4 tag;
+    PolicyObject* policy;
 } Tag;
 
 /* function of type HashCompareFunc */

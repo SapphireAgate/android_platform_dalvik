@@ -9,6 +9,7 @@
  * such user. Please do not modify or free as is used internally
  */
 char* agate_get_user();
+int agate_get_userId();
 
 /*
  *  attempt to login as username using password, return true on success

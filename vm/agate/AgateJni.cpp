@@ -39,26 +39,26 @@ static char* _get_int(char* dest, int* val) {
     return dest + sizeof(int);
 }
 
-static char* _add_string(char* dest, std::string str) {
-    dest = _add_int(dest, str.size());
-    dest = _copy_bytes(dest, (char*) str.c_str(), str.size());
-    return dest;
-}
+//static char* _add_string(char* dest, std::string str) {
+//    dest = _add_int(dest, str.size());
+//    dest = _copy_bytes(dest, (char*) str.c_str(), str.size());
+//    return dest;
+//}
 
-static char* _get_string(char* dest, Object** s) {
-    int size;
-    dest = _get_int(dest, &size);
-    //ALOGW("Reader size: %d", size);
-    Object* str = (Object*) dvmCreateStringFromCstrAndLength(dest, size);
-    if (str == NULL) {
-            // Probably OOM; drop out now.
-            assert(dvmCheckException(dvmThreadSelf()));
-            //dvmReleaseTrackedAlloc((Object*) stringArray, self);
-    }
-
-    *s = str;
-    return dest + size;
-}
+//static char* _get_string(char* dest, Object** s) {
+//    int size;
+//    dest = _get_int(dest, &size);
+//    //ALOGW("Reader size: %d", size);
+//    Object* str = (Object*) dvmCreateStringFromCstrAndLength(dest, size);
+//    if (str == NULL) {
+//            // Probably OOM; drop out now.
+//            assert(dvmCheckException(dvmThreadSelf()));
+//            //dvmReleaseTrackedAlloc((Object*) stringArray, self);
+//    }
+//
+//    *s = str;
+//    return dest + size;
+//}
 
 static int _get_fd_from_filedescriptor(JNIEnv* env, jobject java_fd) {
     //TODO: Is this expensive? Set a global variable?
@@ -83,7 +83,17 @@ static int _get_fd_from_filedescriptor(JNIEnv* env, jobject java_fd) {
  * Checks if data can flow
  */
 bool agateJniCanFlow(JNIEnv* env, int from, int to) {
-   return agate_can_flow((u4)from, (u4)to);
+   if (from == 0 && to == 0)
+       return true;
+
+   if (from == 0)
+       return true;
+
+   //TODO: solve this case
+   if (to == 0)
+       return false; 
+
+   return agate_can_flow((PolicyObject*)from, (PolicyObject*)to);
 }
 
 /*
@@ -91,7 +101,7 @@ bool agateJniCanFlow(JNIEnv* env, int from, int to) {
  */
 int agateJniGetSocketPolicy(JNIEnv* env, jobject java_fd) {
    int _fd = _get_fd_from_filedescriptor(env, java_fd);
-   return agate_get_policy_on_socket(_fd);
+   return (int)agate_get_policy_on_socket(_fd);
 }
 
 /*
@@ -114,26 +124,23 @@ int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
  */
 char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
 
-    Policy* p = (Policy*) tag;
-    int v_size = p->readers->size();
+    PolicyObject* p = (PolicyObject*) tag;
+    u4 v_size = p->n_r;
 
     /* Compute total length of the serialized policy */
-    int total_length = 2*sizeof(int); // one int to encode total_length and one int to encode vector size
-    std::set<std::string> reader_set = *(p->readers);
-    for (std::set<std::string>::iterator i = reader_set.begin(); i != reader_set.end(); i++) {
-        total_length += sizeof(int) + (*i).size();
-    }
+    u4 total_length = v_size * sizeof(u4) + 2 * sizeof(u4); // encode also the vector size and total_length
 
     /* Allocate memory */
     char* bytes = (char*)malloc(total_length);
 
     /* Add the  policy as a continuous stream */
-    char* q = _add_int(bytes, total_length);
+    char* q = _add_int(bytes, total_length); // TODO: add u4, but it's ok because sizeof(u4) = sizeof(int)
     q = _add_int(q, v_size);
-    for (std::set<std::string>::iterator i = reader_set.begin(); i != reader_set.end(); i++) {
-        q = _add_string(q, *i);
+    for (u4 i = 0; i < v_size; i++) {
+        q = _add_int(q, p->readers[i]);
     }
 
+    // TODO: add writers
     *size = total_length;
     return bytes;
 }
@@ -141,38 +148,31 @@ char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
 /*
  * De-codes a policy from a stream of bytes (De-serialization)
  */
-int agateJniDecodePolicy(JNIEnv* env, char* p) {
-    int v_size;
-    
-    //char* q = _get_int(p, &total_size);
-    //ALOGW("Total size = %d", total_size);
-    char* q = _get_int(p, &v_size);
-    //ALOGW("Vector size = %d", v_size);
+int agateJniDecodePolicy(JNIEnv* env, char* s) {
+    // TODO: for now only the readers
+    u4 n_r;
+    s = _get_int(s, (int*)&n_r); // get nr. of readers
 
-    /* Create ArrayObject of readers */
-    // Allocate an array to hold the String objects.
-    ClassObject* elementClass = dvmFindArrayClassForElement(gDvm.classJavaLangString);
-    ArrayObject* readers = dvmAllocArrayByClass(elementClass, v_size, ALLOC_DEFAULT);
-    if (readers == NULL) {
+    /* Allocate space for a new policy */
+    PolicyObject* p = (PolicyObject*)dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
+
+    /* Allocate space for the reader's vector */
+    // no need to track the allocation, p is already tracked and scanned.
+    p->n_r = n_r;
+    p->readers = (u4*)dvmMalloc(sizeof(u4) * n_r, ALLOC_DONT_TRACK);
+
+    if (p->readers == NULL) {
         // Probably OOM.
         assert(dvmCheckException(dvmThreadSelf()));
         return 0;
     }
 
-    for (int i = 0; i < v_size; i++) {
-        Object* s;
-        q = _get_string(q, &s);
-        //ALOGW("Reader: %s", (char*) dvmCreateCstrFromString((StringObject*)s));
-        if (s == NULL) {
-             dvmReleaseTrackedAlloc((Object*) readers, dvmThreadSelf());
-             return 0;
-        }
-        dvmSetObjectArrayElement(readers, i, s);
-        /* stored in tracked array, okay to release */
-        dvmReleaseTrackedAlloc(s, dvmThreadSelf());
+    /* Copy contents from readers argument */
+    for (u4 i = 0; i < n_r; i++) {
+        s = _get_int(s, (int*)(p->readers + i));
     }
 
-    return agate_create_policy(readers, NULL);
+    return (int)p;
 }
 
 /*
@@ -180,7 +180,7 @@ int agateJniDecodePolicy(JNIEnv* env, char* p) {
  */
 void agateJniAddSocketPolicy(JNIEnv* env, jobject java_fd, int tag) {
    int _fd = _get_fd_from_filedescriptor(env, java_fd);
-   agate_add_policy_on_socket(_fd, tag);
+   agate_add_policy_on_socket(_fd, (PolicyObject*) tag);
 }
 
 /*
@@ -198,6 +198,10 @@ void agateJniAddArrayPolicy(JNIEnv* env, jobject obj, int tag) {
 }
 
 /* Get the identity of the logged in user */
-char* agateJniGetCertificate(JNIEnv* env) {
-    return agate_get_user();
+int agateJniGetCertificate(JNIEnv* env) {
+    return agate_get_userId();
+}
+
+void agateJniPrintPolicy(int tag) {
+    agate_print_policy((PolicyObject*)tag);
 }

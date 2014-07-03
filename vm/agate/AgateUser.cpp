@@ -112,6 +112,10 @@ char* agate_get_user() {
     return cur_username;
 }
 
+int agate_get_userId() {
+    return cur_userId;
+}
+
 /*
  *  attempt to login as username using password, return true on success
  */
