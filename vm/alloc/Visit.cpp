@@ -80,6 +80,10 @@ static void visitIndirectRefTable(RootVisitor *visitor, IndirectRefTable *table,
  * Visits all stack slots except those belonging to native method
  * arguments.
  */
+
+// begin WITH_SAPPHIRE_AGATE
+    //TODO: visit policies on stack also.
+// end WITH_SAPPHIRE_AGATE
 static void visitThreadStack(RootVisitor *visitor, Thread *thread, void *arg)
 {
     assert(visitor != NULL);
@@ -223,6 +227,9 @@ void dvmVisitRoots(RootVisitor *visitor, void *arg)
 {
     assert(visitor != NULL);
     visitHashTable(visitor, gDvm.loadedClasses, ROOT_STICKY_CLASS, arg);
+// begin WITH_SAPPHIRE_AGATE
+    //TODO: maybe can visit the socket hashtable
+// end WITH_SAPPHIRE_AGATE
     visitPrimitiveTypes(visitor, arg);
     if (gDvm.dbgRegistry != NULL) {
         visitHashTable(visitor, gDvm.dbgRegistry, ROOT_DEBUGGER, arg);

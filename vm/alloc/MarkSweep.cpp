@@ -222,6 +222,9 @@ static void scanFields(const Object *obj, GcMarkContext *ctx)
     assert(obj != NULL);
     assert(obj->clazz != NULL);
     assert(ctx != NULL);
+// begin WITH_SAPPHIRE_AGATE
+    // TODO: scan for tags interleaved with fields.
+// end WITH_SAPPHIRE_AGATE
     if (obj->clazz->refOffsets != CLASS_WALK_SUPER) {
         unsigned int refOffsets = obj->clazz->refOffsets;
         while (refOffsets != 0) {
@@ -316,6 +319,12 @@ static void scanArrayObject(const Object *obj, GcMarkContext *ctx)
             markObject(contents[i], ctx);
         }
     }
+
+// begin WITH_SAPPHIRE_AGATE
+    /* Scan for valid policies */
+    PolicyObject* p = (PolicyObject*)((ArrayObject*)obj)->taint.tag;
+    markObject(p, ctx);
+// end WITH_SAPPHIRE_AGATE
 }
 
 /*
