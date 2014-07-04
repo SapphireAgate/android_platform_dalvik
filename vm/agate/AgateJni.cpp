@@ -125,7 +125,7 @@ int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
 char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
 
     PolicyObject* p = (PolicyObject*) tag;
-    u4 v_size = p->n_r;
+    u4 v_size = p->readers->length;
 
     /* Compute total length of the serialized policy */
     u4 total_length = v_size * sizeof(u4) + 2 * sizeof(u4); // encode also the vector size and total_length
@@ -137,7 +137,7 @@ char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
     char* q = _add_int(bytes, total_length); // TODO: add u4, but it's ok because sizeof(u4) = sizeof(int)
     q = _add_int(q, v_size);
     for (u4 i = 0; i < v_size; i++) {
-        q = _add_int(q, p->readers[i]);
+        q = _add_int(q, ((int*)(void*)p->readers->contents)[i]);
     }
 
     // TODO: add writers
@@ -154,12 +154,12 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
     s = _get_int(s, (int*)&n_r); // get nr. of readers
 
     /* Allocate space for a new policy */
-    PolicyObject* p = (PolicyObject*)dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
+    PolicyObject* p = (PolicyObject*) dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
 
     /* Allocate space for the reader's vector */
     // no need to track the allocation, p is already tracked and scanned.
-    p->n_r = n_r;
-    p->readers = (u4*)dvmMalloc(sizeof(u4) * n_r, ALLOC_DONT_TRACK);
+    p->readers = dvmAllocPrimitiveArray('I', n_r, ALLOC_DEFAULT);
+    dvmReleaseTrackedAlloc((Object*)p->readers, NULL);
 
     if (p->readers == NULL) {
         // Probably OOM.
@@ -169,7 +169,7 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
 
     /* Copy contents from readers argument */
     for (u4 i = 0; i < n_r; i++) {
-        s = _get_int(s, (int*)(p->readers + i));
+        s = _get_int(s, (int*)(void*)p->readers->contents + i);
     }
 
     return (int)p;

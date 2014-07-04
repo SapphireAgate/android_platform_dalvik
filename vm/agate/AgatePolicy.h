@@ -1,4 +1,3 @@
-
 #ifndef _DALVIK_AGATE_POLICY
 #define _DALVIK_AGATE_POLICY
 
@@ -11,11 +10,13 @@
 #define AGATE_SOCKET_POLICIES_TABLE_SIZE 32 /* number of sockets */
 #define AGATE_TAG_POLICIES_TABLE_SIZE 32 /* number of policies */
 
+#define AGATE_OBJECT_TYPE_POLICY            1
+#define AGATE_OBJECT_TYPE_POLICY_INT_ARRAY  2
 
 /* The structure of a policy.
  *
  * Currently, a policy is defined in terms of User principals. A User
- * principal has a unique username. 
+ * principal has a unique userId. 
  *
  *  We define PolicyObjects as Objects and take advantage
  *  of the GC to deallocate them when they are no longer
@@ -26,14 +27,16 @@
  *  Therefore we need to modify a bit the GC to tell it how to scan
  *  these objects (right now the GC relies on the fact that each Object
  *  it needs to garbage collect has the class field set).
+ *
+ *  The ClassObject member of the ArrayObject* of ints is allocated just once
+ *  and is already initialized, so the policy will still not consume much space.
  */
 // TODO: find out why there is a lock inside the Object struct
 struct PolicyObject : Object {
-    u4* readers;  // array of ids that specify who can read the data
-                  // tagged with this policy
-    u4 n_r;       // number of readers
-    u4* writers;
-    u4 n_w;
+    ArrayObject* readers;  // array of int ids that specify who can read the data
+                           // tagged with this policy
+    ArrayObject* writers;  // array of ids that specify who can write the data
+                           // tagged with this policy
 };
 
 

@@ -25,18 +25,21 @@ PolicyObject* agate_create_policy(ArrayObject* readers, ArrayObject* writers)
 
     /* Allocate space for the reader's vector */
     // no need to track the allocation, p is already tracked and scanned.
-    p->n_r = readers->length;
-    p->readers = (u4*)dvmMalloc(sizeof(u4) * p->n_r, ALLOC_DONT_TRACK);
+    p->readers = dvmAllocPrimitiveArray('I', readers->length, ALLOC_DEFAULT);
+    dvmReleaseTrackedAlloc((Object*)p->readers, NULL);
 
     if (p->readers == NULL) {
         // Probably OOM.
         assert(dvmCheckException(dvmThreadSelf()));
-        return 0;
+        return NULL;
     }
 
+    int *r1 = (int*)(void*)p->readers->contents;
+    int *r2 = (int*)(void*)readers->contents;
+
     /* Copy contents from readers argument */
-    for (u4 i = 0; i < p->n_r; i++) {
-        p->readers[i] = ((u4*)(void*)(readers)->contents)[i];
+    for (u4 i = 0; i < readers->length; i++) {
+        r1[i] = r2[i];
     }
 
     // TODO: make the same for writers
@@ -46,10 +49,10 @@ PolicyObject* agate_create_policy(ArrayObject* readers, ArrayObject* writers)
 void agate_print_policy(PolicyObject* p) {
     assert(p != NULL);
 
-    u4* readers = p->readers;
+    int* readers = (int*)(void*)p->readers->contents;
 
     ALOGE("AgateLog: [agate_print_policy] Policy = ");
-    for(u4 i = 0; i < p->n_r; i++)
+    for(u4 i = 0; i < p->readers->length; i++)
         ALOGE("R:%d", readers[i]);
 }
 
@@ -71,10 +74,10 @@ PolicyObject* agate_merge_policies(PolicyObject* p1, PolicyObject* p2)
      * readers.
      */
 
-    u4* r1 = p1->readers;
-    u4 n_r1 = p1->n_r;
-    u4* r2 = p2->readers;
-    u4 n_r2 = p2->n_r;
+    int* r1 = (int*)(void*)p1->readers->contents;
+    u4 n_r1 = p1->readers->length;
+    int* r2 = (int*)(void*)p2->readers->contents;
+    u4 n_r2 = p2->readers->length;
  
     u4 n_r = 0;
     // compute intersection in m
@@ -94,11 +97,11 @@ PolicyObject* agate_merge_policies(PolicyObject* p1, PolicyObject* p2)
 
     /* Allocate space for the reader's vector */
     // no need to track the allocation, p is already tracked and scanned.
-    p->n_r = n_r;
-    p->readers = (u4*) dvmMalloc(sizeof(u4) * n_r, ALLOC_DONT_TRACK);
+    p->readers = dvmAllocPrimitiveArray('I', n_r, ALLOC_DEFAULT);
+    dvmReleaseTrackedAlloc((Object*) p->readers, NULL); 
 
     for (u4 i = 0; i < n_r; i++) {
-        p->readers[i] = m[i];
+        ((int*)(void*)p->readers->contents)[i] = m[i];
     }
 
     return p; 
@@ -121,13 +124,13 @@ bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
      * include all readers in the destination policy.
      */
 
-    u4* fromReaders = fromPolicy->readers;
-    u4* toReaders = toPolicy->readers;
+    int* fromReaders = (int*)(void*)fromPolicy->readers->contents;
+    int* toReaders = (int*)(void*)toPolicy->readers->contents;
 
     bool result = true;
-    for (u4 i = 0; i < toPolicy->n_r; i++) {
+    for (u4 i = 0; i < toPolicy->readers->length; i++) {
         result = false;
-        for (u4 j = 0; j < fromPolicy->n_r; j++) {
+        for (u4 j = 0; j < fromPolicy->readers->length; j++) {
             if (toReaders[i] == fromReaders[j]) {
                 result = true;
                 break;

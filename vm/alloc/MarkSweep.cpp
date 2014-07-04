@@ -15,6 +15,9 @@
  */
 
 #include "Dalvik.h"
+// start WITH_SAPPHIRE_AGATE
+#include "agate/AgatePolicy.h"
+// end WITH_SAPPHIRE_AGATE
 #include "alloc/CardTable.h"
 #include "alloc/HeapBitmap.h"
 #include "alloc/HeapBitmapInlines.h"
@@ -447,6 +450,20 @@ static void scanDataObject(const Object *obj, GcMarkContext *ctx)
     }
 }
 
+// begin WITH_SAPPHIRE_AGATE
+static void scanPolicyObject(const Object* obj, GcMarkContext* ctx) {
+    assert(obj != NULL);
+    assert(ctx != NULL);
+
+    PolicyObject* p = (PolicyObject*) obj;
+    assert(p->readers != NULL);
+    markObject(p->readers, ctx);
+    // TODO: mark writers
+    //markNonObject(p->writers, ctx);
+}
+// end WITH_SAPPHIRE_AGATE
+
+
 /*
  * Scans an object reference.  Determines the type of the reference
  * and dispatches to a specialized scanning routine.
@@ -454,6 +471,14 @@ static void scanDataObject(const Object *obj, GcMarkContext *ctx)
 static void scanObject(const Object *obj, GcMarkContext *ctx)
 {
     assert(obj != NULL);
+
+// begin WITH_SAPPHIRE_AGATE
+    if (obj->clazz == NULL) { // must be a PolicyObject
+        scanPolicyObject(obj, ctx);
+        return;
+    }
+// end WITH_SAPPHIRE_AGATE
+
     assert(obj->clazz != NULL);
     if (obj->clazz == gDvm.classJavaLangClass) {
         scanClassObject(obj, ctx);
