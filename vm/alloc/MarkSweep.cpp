@@ -322,8 +322,8 @@ static void scanArrayObject(const Object *obj, GcMarkContext *ctx)
 
 // begin WITH_SAPPHIRE_AGATE
     /* Scan for valid policies */
-    PolicyObject* p = (PolicyObject*)((ArrayObject*)obj)->taint.tag;
-    markObject(p, ctx);
+    //PolicyObject* p = (PolicyObject*)((ArrayObject*)obj)->taint.tag;
+    //markObject(p, ctx);
 // end WITH_SAPPHIRE_AGATE
 }
 
@@ -483,7 +483,7 @@ static void scanObject(const Object *obj, GcMarkContext *ctx)
 
 // begin WITH_SAPPHIRE_AGATE
     if (obj->clazz == NULL) { // must be a PolicyObject
-        scanPolicyObject(obj, ctx);
+        //scanPolicyObject(obj, ctx);
         return;
     }
 // end WITH_SAPPHIRE_AGATE
