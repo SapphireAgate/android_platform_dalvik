@@ -216,168 +216,6 @@ unspecified registers or condition codes.
 #include "../common/jit-config.h"
 #endif
 
-/* File: armv7-a/platform.S */
-/*
- * ===========================================================================
- *  CPU-version-specific defines
- * ===========================================================================
- */
-
-#if !defined(ANDROID_SMP)
-# error "Must define ANDROID_SMP"
-#endif
-
-/*
- * Macro for data memory barrier.
- */
-.macro  SMP_DMB
-#if ANDROID_SMP != 0
-    dmb
-#else
-    /* not SMP */
-#endif
-.endm
-
-/*
- * Macro for data memory barrier (store/store variant).
- */
-.macro  SMP_DMB_ST
-#if ANDROID_SMP != 0
-    dmb     st
-#else
-    /* not SMP */
-#endif
-.endm
-
-/* File: armv5te_taint/entry.S */
-/*
- * Copyright (C) 2008 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-/*
- * Interpreter entry point.
- */
-
-/*
- * We don't have formal stack frames, so gdb scans upward in the code
- * to find the start of the function (a label with the %function type),
- * and then looks at the next few instructions to figure out what
- * got pushed onto the stack.  From this it figures out how to restore
- * the registers, including PC, for the previous stack frame.  If gdb
- * sees a non-function label, it stops scanning, so either we need to
- * have nothing but assembler-local labels between the entry point and
- * the break, or we need to fake it out.
- *
- * When this is defined, we add some stuff to make gdb less confused.
- */
-#define ASSIST_DEBUGGER 1
-
-    .text
-    .align  2
-    .global dvmMterpStdRun
-    .type   dvmMterpStdRun, %function
-
-/*
- * On entry:
- *  r0  Thread* self
- *
- * The return comes via a call to dvmMterpStdBail().
- */
-dvmMterpStdRun:
-#define MTERP_ENTRY1 \
-    .save {r4-r10,fp,lr}; \
-    stmfd   sp!, {r4-r10,fp,lr}         @ save 9 regs
-#define MTERP_ENTRY2 \
-    .pad    #4; \
-    sub     sp, sp, #4                  @ align 64
-
-    .fnstart
-    MTERP_ENTRY1
-    MTERP_ENTRY2
-
-    /* save stack pointer, add magic word for debuggerd */
-    str     sp, [r0, #offThread_bailPtr]  @ save SP for eventual return
-
-    /* set up "named" registers, figure out entry point */
-    mov     rSELF, r0                   @ set rSELF
-    LOAD_PC_FP_FROM_SELF()              @ load rPC and rFP from "thread"
-    ldr     rIBASE, [rSELF, #offThread_curHandlerTable] @ set rIBASE
-
-#if defined(WITH_JIT)
-.LentryInstr:
-    /* Entry is always a possible trace start */
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    FETCH_INST()
-    mov     r1, #0                      @ prepare the value for the new state
-    str     r1, [rSELF, #offThread_inJitCodeCache] @ back to the interp land
-    cmp     r0,#0                       @ is profiling disabled?
-#if !defined(WITH_SELF_VERIFICATION)
-    bne     common_updateProfile        @ profiling is enabled
-#else
-    ldr     r2, [rSELF, #offThread_shadowSpace] @ to find out the jit exit state
-    beq     1f                          @ profiling is disabled
-    ldr     r3, [r2, #offShadowSpace_jitExitState]  @ jit exit state
-    cmp     r3, #kSVSTraceSelect        @ hot trace following?
-    moveq   r2,#kJitTSelectRequestHot   @ ask for trace selection
-    beq     common_selectTrace          @ go build the trace
-    cmp     r3, #kSVSNoProfile          @ don't profile the next instruction?
-    beq     1f                          @ intrepret the next instruction
-    b       common_updateProfile        @ collect profiles
-#endif
-1:
-    GET_INST_OPCODE(ip)
-    GOTO_OPCODE(ip)
-#else
-    /* start executing the instruction at rPC */
-    FETCH_INST()                        @ load rINST from rPC
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-#endif
-
-.Lbad_arg:
-    ldr     r0, strBadEntryPoint
-0:  add     r0, pc
-    @ r1 holds value of entryPoint
-    bl      printf
-    bl      dvmAbort
-    .fnend
-    .size   dvmMterpStdRun, .-dvmMterpStdRun
-
-strBadEntryPoint:
-    .word   PCREL_REF(.LstrBadEntryPoint,0b)
-
-    .global dvmMterpStdBail
-    .type   dvmMterpStdBail, %function
-
-/*
- * Restore the stack pointer and PC from the save point established on entry.
- * This is essentially the same as a longjmp, but should be cheaper.  The
- * last instruction causes us to return to whoever called dvmMterpStdRun.
- *
- * We pushed some registers on the stack in dvmMterpStdRun, then saved
- * SP and LR.  Here we restore SP, restore the registers, and then restore
- * LR to PC.
- *
- * On entry:
- *  r0  Thread* self
- */
-dvmMterpStdBail:
-    ldr     sp, [r0, #offThread_bailPtr]    @ sp<- saved SP
-    add     sp, sp, #4                      @ un-align 64
-    ldmfd   sp!, {r4-r10,fp,pc}             @ restore 9 regs and return
-
-
 
     .global dvmAsmInstructionStart
     .type   dvmAsmInstructionStart, %function
@@ -387,8071 +225,2819 @@ dvmAsmInstructionStart = .L_OP_NOP
 /* ------------------------------ */
     .balign 64
 .L_OP_NOP: /* 0x00 */
-/* File: armv5te_taint/OP_NOP.S */
-    FETCH_ADVANCE_INST(1)               @ advance to next instr, load rINST
-    GET_INST_OPCODE(ip)                 @ ip<- opcode from rINST
-    GOTO_OPCODE(ip)                     @ execute it
-
-#ifdef ASSIST_DEBUGGER
-    /* insert fake function header to help gdb find the stack frame */
-    .type   dalvik_inst, %function
-dalvik_inst:
-    .fnstart
-    MTERP_ENTRY1
-    MTERP_ENTRY2
-    .fnend
-#endif
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NOP      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE: /* 0x01 */
-/* File: armv6t2_taint/OP_MOVE.S */
-    /* for move, move-object, long-to-int */
-    /* op vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B from 15:12
-    ubfx    r0, rINST, #8, #4           @ r0<- A from 11:8
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    GET_VREG(r2, r1)                    @ r2<- fp[B]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r1, r3)
-    SET_VREG_TAINT(r1, r0, r3)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ ip<- opcode from rINST
-    SET_VREG(r2, r0)                    @ fp[A]<- r2
-    GOTO_OPCODE(ip)                     @ execute next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_FROM16: /* 0x02 */
-/* File: armv5te_taint/OP_MOVE_FROM16.S */
-    /* for: move/from16, move-object/from16 */
-    /* op vAA, vBBBB */
-    FETCH(r1, 1)                        @ r1<- BBBB
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r2, r1)                    @ r2<- fp[BBBB]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r1, r3)
-    SET_VREG_TAINT(r1, r0, r3)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r0)                    @ fp[AA]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_FROM16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_16: /* 0x03 */
-/* File: armv5te_taint/OP_MOVE_16.S */
-    /* for: move/16, move-object/16 */
-    /* op vAAAA, vBBBB */
-    FETCH(r1, 2)                        @ r1<- BBBB
-    FETCH(r0, 1)                        @ r0<- AAAA
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_VREG(r2, r1)                    @ r2<- fp[BBBB]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r1, r3)
-    SET_VREG_TAINT(r1, r0, r3)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r0)                    @ fp[AAAA]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_WIDE: /* 0x04 */
-/* File: armv6t2_taint/OP_MOVE_WIDE.S */
-    /* move-wide vA, vB */
-    /* NOTE: regs can overlap, e.g. "move v6,v7" or "move v7,v6" */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r2, rINST, #8, #4           @ r2<- A
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[B]
-    add     r9, rFP, r2, lsl #3         @ r9<- &fp[A]
-    ldmia   r3, {r0-r3}                 @ r0/r1<- fp[B]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    stmia   r9, {r0-r3}                 @ fp[A]<- r0/r1
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_WIDE_FROM16: /* 0x05 */
-/* File: armv5te_taint/OP_MOVE_WIDE_FROM16.S */
-    /* move-wide/from16 vAA, vBBBB */
-    /* NOTE: regs can overlap, e.g. "move v6,v7" or "move v7,v6" */
-    FETCH(r3, 1)                        @ r3<- BBBB
-    mov     r2, rINST, lsr #8           @ r2<- AA
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[BBBB]
-    add     r9, rFP, r2, lsl #3         @ r9<- &fp[AA]
-    ldmia   r3, {r0-r3}                 @ r0/r1<- fp[BBBB]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    stmia   r9, {r0-r3}                 @ fp[AA]<- r0/r1
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_WIDE_FROM16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_WIDE_16: /* 0x06 */
-/* File: armv5te_taint/OP_MOVE_WIDE_16.S */
-    /* move-wide/16 vAAAA, vBBBB */
-    /* NOTE: regs can overlap, e.g. "move v6,v7" or "move v7,v6" */
-    FETCH(r3, 2)                        @ r3<- BBBB
-    FETCH(r2, 1)                        @ r2<- AAAA
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[BBBB]
-    add     r9, rFP, r2, lsl #3         @ r9<- &fp[AAAA]
-    ldmia   r3, {r0-r3}                 @ r0/r1<- fp[BBBB]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    stmia   r9, {r0-r3}                 @ fp[AAAA]<- r0/r1
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_WIDE_16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_OBJECT: /* 0x07 */
-/* File: armv5te_taint/OP_MOVE_OBJECT.S */
-/* File: armv5te_taint/OP_MOVE.S */
-    /* for move, move-object, long-to-int */
-    /* op vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B from 15:12
-    mov     r0, rINST, lsr #8           @ r0<- A from 11:8
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    GET_VREG(r2, r1)                    @ r2<- fp[B]
-    and     r0, r0, #15
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r1, r3)
-    SET_VREG_TAINT(r1, r0, r3)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ ip<- opcode from rINST
-    SET_VREG(r2, r0)                    @ fp[A]<- r2
-    GOTO_OPCODE(ip)                     @ execute next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_OBJECT_FROM16: /* 0x08 */
-/* File: armv5te_taint/OP_MOVE_OBJECT_FROM16.S */
-/* File: armv5te_taint/OP_MOVE_FROM16.S */
-    /* for: move/from16, move-object/from16 */
-    /* op vAA, vBBBB */
-    FETCH(r1, 1)                        @ r1<- BBBB
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r2, r1)                    @ r2<- fp[BBBB]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r1, r3)
-    SET_VREG_TAINT(r1, r0, r3)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r0)                    @ fp[AA]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_OBJECT_FROM16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_OBJECT_16: /* 0x09 */
-/* File: armv5te_taint/OP_MOVE_OBJECT_16.S */
-/* File: armv5te_taint/OP_MOVE_16.S */
-    /* for: move/16, move-object/16 */
-    /* op vAAAA, vBBBB */
-    FETCH(r1, 2)                        @ r1<- BBBB
-    FETCH(r0, 1)                        @ r0<- AAAA
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_VREG(r2, r1)                    @ r2<- fp[BBBB]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r1, r3)
-    SET_VREG_TAINT(r1, r0, r3)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r0)                    @ fp[AAAA]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_OBJECT_16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_RESULT: /* 0x0a */
-/* File: armv5te_taint/OP_MOVE_RESULT.S */
-    /* for: move-result, move-result-object */
-    /* op vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    ldr     r0, [rSELF, #offThread_retval]    @ r0<- self->retval.i
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [rSELF, #offThread_rtaint]
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r0, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_RESULT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_RESULT_WIDE: /* 0x0b */
-/* File: armv5te_taint/OP_MOVE_RESULT_WIDE.S */
-    /* move-result-wide vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    add     r3, rSELF, #offThread_retval  @ r3<- &self->retval
-// begin WITH_TAINT_TRACKING
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    ldmia   r3, {r0-r1}                 @ r0/r1<- retval.j
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r2, {r0-r1}                 @ fp[AA]<- r0/r1
-    ldr r3, [rSELF, #offThread_rtaint]
-    str r0, [r2, #0]
-    str r3, [r2, #4]
-    str r1, [r2, #8]
-    str r3, [r2, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_RESULT_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_RESULT_OBJECT: /* 0x0c */
-/* File: armv5te_taint/OP_MOVE_RESULT_OBJECT.S */
-/* File: armv5te_taint/OP_MOVE_RESULT.S */
-    /* for: move-result, move-result-object */
-    /* op vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    ldr     r0, [rSELF, #offThread_retval]    @ r0<- self->retval.i
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [rSELF, #offThread_rtaint]
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r0, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_RESULT_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MOVE_EXCEPTION: /* 0x0d */
-/* File: armv5te_taint/OP_MOVE_EXCEPTION.S */
-    /* move-exception vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    ldr     r3, [rSELF, #offThread_exception]  @ r3<- dvmGetException bypass
-    mov     r1, #0                      @ r1<- 0
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    SET_VREG(r3, r2)                    @ fp[AA]<- exception obj
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    SET_TAINT_CLEAR(r9)
-    SET_VREG_TAINT(r9, r2, r3)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    str     r1, [rSELF, #offThread_exception]  @ dvmClearException bypass
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MOVE_EXCEPTION      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_RETURN_VOID: /* 0x0e */
-/* File: armv5te_taint/OP_RETURN_VOID.S */
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_CLEAR(r1)
-    str     r1, [rSELF, #offThread_rtaint]
-// end WITH_TAINT_TRACKING
-    b       common_returnFromMethod
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_RETURN_VOID      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_RETURN: /* 0x0f */
-/* File: armv5te_taint/OP_RETURN.S */
-    /*
-     * Return a 32-bit value.  Copies the return value into the "thread"
-     * structure, then jumps to the return handler.
-     *
-     * for: return, return-object
-     */
-    /* op vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    GET_VREG(r0, r2)                    @ r0<- vAA
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r3, r2, r1)
-    str     r3, [rSELF, #offThread_rtaint]
-// end WITH_TAINT_TRACKING
-    str     r0, [rSELF, #offThread_retval] @ retval.i <- vAA
-    b       common_returnFromMethod
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_RETURN      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_RETURN_WIDE: /* 0x10 */
-/* File: armv5te_taint/OP_RETURN_WIDE.S */
-    /*
-     * Return a 64-bit value.  Copies the return value into the "thread"
-     * structure, then jumps to the return handler.
-     */
-    /* return-wide vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-// begin WITH_TAINT_TRACKING
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    add     r3, rSELF, #offThread_retval  @ r3<- &self->retval
-// begin WITH_TAINT_TRACKING
-//    ldmia   r2, {r0-r1}                 @ r0/r1 <- vAA/vAA+1
-    ldr     r0, [r2, #0]
-    ldr     r1, [r2, #8]
-    ldr     r9, [r2, #4]
-    str     r9, [rSELF, #offThread_rtaint]
-// end WITH_TAINT_TRACKING
-    stmia   r3, {r0-r1}                 @ retval<- r0/r1
-    b       common_returnFromMethod
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_RETURN_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_RETURN_OBJECT: /* 0x11 */
-/* File: armv5te_taint/OP_RETURN_OBJECT.S */
-/* File: armv5te_taint/OP_RETURN.S */
-    /*
-     * Return a 32-bit value.  Copies the return value into the "thread"
-     * structure, then jumps to the return handler.
-     *
-     * for: return, return-object
-     */
-    /* op vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    GET_VREG(r0, r2)                    @ r0<- vAA
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r3, r2, r1)
-    str     r3, [rSELF, #offThread_rtaint]
-// end WITH_TAINT_TRACKING
-    str     r0, [rSELF, #offThread_retval] @ retval.i <- vAA
-    b       common_returnFromMethod
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_RETURN_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_4: /* 0x12 */
-/* File: armv6t2_taint/OP_CONST_4.S */
-    /* const/4 vA, #+B */
-    mov     r1, rINST, lsl #16          @ r1<- Bxxx0000
-    ubfx    r0, rINST, #8, #4           @ r0<- A
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    mov     r1, r1, asr #28             @ r1<- sssssssB (sign-extended)
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r0, r2)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ ip<- opcode from rINST
-    SET_VREG(r1, r0)                    @ fp[A]<- r1
-    GOTO_OPCODE(ip)                     @ execute next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_4      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_16: /* 0x13 */
-/* File: armv5te_taint/OP_CONST_16.S */
-    /* const/16 vAA, #+BBBB */
-    FETCH_S(r0, 1)                      @ r0<- ssssBBBB (sign-extended)
-    mov     r3, rINST, lsr #8           @ r3<- AA
-// BEGIN WITH_TAINT_TRACKING
-	SET_TAINT_FP(r1)
-	SET_TAINT_CLEAR(r2)
-    SET_VREG_TAINT(r2, r3, r1)
-// END WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r3)                    @ vAA<- r0
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST: /* 0x14 */
-/* File: armv5te_taint/OP_CONST.S */
-    /* const vAA, #+BBBBbbbb */
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    FETCH(r0, 1)                        @ r0<- bbbb (low)
-    FETCH(r1, 2)                        @ r1<- BBBB (high)
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    orr     r0, r0, r1, lsl #16         @ r0<- BBBBbbbb
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r1)
-    SET_VREG_TAINT(r1, r3, r2)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r3)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_HIGH16: /* 0x15 */
-/* File: armv5te_taint/OP_CONST_HIGH16.S */
-    /* const/high16 vAA, #+BBBB0000 */
-    FETCH(r0, 1)                        @ r0<- 0000BBBB (zero-extended)
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    mov     r0, r0, lsl #16             @ r0<- BBBB0000
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r1)
-    SET_VREG_TAINT(r1, r3, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r3)                    @ vAA<- r0
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_HIGH16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_WIDE_16: /* 0x16 */
-/* File: armv5te_taint/OP_CONST_WIDE_16.S */
-    /* const-wide/16 vAA, #+BBBB */
-    FETCH_S(r0, 1)                      @ r0<- ssssBBBB (sign-extended)
-    mov     r3, rINST, lsr #8           @ r3<- AA
-// begin WITH_TAINT_TRACKING
-    mov     r2, r0, asr #31             @ r1<- ssssssss
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    add     r9, rFP, r3, lsl #3         @ r3<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_CLEAR(r1)
-    SET_TAINT_CLEAR(r3)
-    stmia   r9, {r0-r3}                 @ vAA<- r0/r1
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_WIDE_16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_WIDE_32: /* 0x17 */
-/* File: armv5te_taint/OP_CONST_WIDE_32.S */
-    /* const-wide/32 vAA, #+BBBBbbbb */
-    FETCH(r0, 1)                        @ r0<- 0000bbbb (low)
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    FETCH_S(r2, 2)                      @ r2<- ssssBBBB (high)
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    orr     r0, r0, r2, lsl #16         @ r0<- BBBBbbbb
-// begin WITH_TAINT_TRACKING
-    add     r9, rFP, r3, lsl #3         @ r9<- &fp[AA]
-    mov     r2, r0, asr #31             @ r2<- ssssssss
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_CLEAR(r1)
-    SET_TAINT_CLEAR(r3)
-    stmia   r9, {r0-r3}                 @ vAA<- r0/r1
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_WIDE_32      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_WIDE: /* 0x18 */
-/* File: armv5te_taint/OP_CONST_WIDE.S */
-    /* const-wide vAA, #+HHHHhhhhBBBBbbbb */
-    FETCH(r0, 1)                        @ r0<- bbbb (low)
-    FETCH(r1, 2)                        @ r1<- BBBB (low middle)
-    FETCH(r2, 3)                        @ r2<- hhhh (high middle)
-    orr     r0, r0, r1, lsl #16         @ r0<- BBBBbbbb (low word)
-    FETCH(r3, 4)                        @ r3<- HHHH (high)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-// begin WITH_TAINT_TRACKING
-    orr     r2, r2, r3, lsl #16         @ r2<- HHHHhhhh (high word)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(5)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_CLEAR(r1)
-    SET_TAINT_CLEAR(r3)
-    stmia   r9, {r0-r3}                 @ vAA<- r0/r1
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_WIDE_HIGH16: /* 0x19 */
-/* File: armv5te_taint/OP_CONST_WIDE_HIGH16.S */
-    /* const-wide/high16 vAA, #+BBBB000000000000 */
-    FETCH(r1, 1)                        @ r1<- 0000BBBB (zero-extended)
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    mov     r0, #0                      @ r0<- 00000000
-// begin WITH_TAINT_TRACKING
-    mov     r2, r1, lsl #16             @ r1<- BBBB0000
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    add     r9, rFP, r3, lsl #3         @ r3<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_CLEAR(r1)
-    SET_TAINT_CLEAR(r3)
-    stmia   r9, {r0-r3}                 @ vAA<- r0/r1
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_WIDE_HIGH16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_STRING: /* 0x1a */
-/* File: armv5te_taint/OP_CONST_STRING.S */
-    /* const/string vAA, String@BBBB */
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r2, [rSELF, #offThread_methodClassDex]  @ r2<- self->methodClassDex
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    ldr     r2, [r2, #offDvmDex_pResStrings]   @ r2<- dvmDex->pResStrings
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- pResStrings[BBBB]
-    cmp     r0, #0                      @ not yet resolved?
-    beq     .LOP_CONST_STRING_resolve
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r9, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_STRING      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_STRING_JUMBO: /* 0x1b */
-/* File: armv5te_taint/OP_CONST_STRING_JUMBO.S */
-    /* const/string vAA, String@BBBBBBBB */
-    FETCH(r0, 1)                        @ r0<- bbbb (low)
-    FETCH(r1, 2)                        @ r1<- BBBB (high)
-    ldr     r2, [rSELF, #offThread_methodClassDex]  @ r2<- self->methodClassDex
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    ldr     r2, [r2, #offDvmDex_pResStrings]   @ r2<- dvmDex->pResStrings
-    orr     r1, r0, r1, lsl #16         @ r1<- BBBBbbbb
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- pResStrings[BBBB]
-    cmp     r0, #0
-    beq     .LOP_CONST_STRING_JUMBO_resolve
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r9, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_STRING_JUMBO      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CONST_CLASS: /* 0x1c */
-/* File: armv5te_taint/OP_CONST_CLASS.S */
-    /* const/class vAA, Class@BBBB */
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r2, [rSELF, #offThread_methodClassDex]  @ r2<- self->methodClassDex
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    ldr     r2, [r2, #offDvmDex_pResClasses]   @ r2<- dvmDex->pResClasses
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- pResClasses[BBBB]
-    cmp     r0, #0                      @ not yet resolved?
-    beq     .LOP_CONST_CLASS_resolve
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r9, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CONST_CLASS      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MONITOR_ENTER: /* 0x1d */
-/* File: armv5te_taint/OP_MONITOR_ENTER.S */
-    /*
-     * Synchronize on an object.
-     */
-    /* monitor-enter vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    GET_VREG(r1, r2)                    @ r1<- vAA (object)
-    mov     r0, rSELF                   @ r0<- self
-    cmp     r1, #0                      @ null object?
-    EXPORT_PC()                         @ need for precise GC
-    beq     common_errNullObject        @ null object, throw an exception
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    bl      dvmLockObject               @ call(self, obj)
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MONITOR_ENTER      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MONITOR_EXIT: /* 0x1e */
-/* File: armv5te_taint/OP_MONITOR_EXIT.S */
-    /*
-     * Unlock an object.
-     *
-     * Exceptions that occur when unlocking a monitor need to appear as
-     * if they happened at the following instruction.  See the Dalvik
-     * instruction spec.
-     */
-    /* monitor-exit vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    EXPORT_PC()                         @ before fetch: export the PC
-    GET_VREG(r1, r2)                    @ r1<- vAA (object)
-    cmp     r1, #0                      @ null object?
-    beq     1f                          @ yes
-    mov     r0, rSELF                   @ r0<- self
-    bl      dvmUnlockObject             @ r0<- success for unlock(self, obj)
-    cmp     r0, #0                      @ failed?
-    FETCH_ADVANCE_INST(1)               @ before throw: advance rPC, load rINST
-    beq     common_exceptionThrown      @ yes, exception is pending
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-1:
-    FETCH_ADVANCE_INST(1)               @ advance before throw
-    b      common_errNullObject
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MONITOR_EXIT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CHECK_CAST: /* 0x1f */
-/* File: armv5te_taint/OP_CHECK_CAST.S */
-    /*
-     * Check to see if a cast from one class to another is allowed.
-     */
-    /* check-cast vAA, class@BBBB */
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    FETCH(r2, 1)                        @ r2<- BBBB
-    GET_VREG(r9, r3)                    @ r9<- object
-    ldr     r0, [rSELF, #offThread_methodClassDex]    @ r0<- pDvmDex
-    cmp     r9, #0                      @ is object null?
-    ldr     r0, [r0, #offDvmDex_pResClasses]    @ r0<- pDvmDex->pResClasses
-    beq     .LOP_CHECK_CAST_okay            @ null obj, cast always succeeds
-    ldr     r1, [r0, r2, lsl #2]        @ r1<- resolved class
-    ldr     r0, [r9, #offObject_clazz]  @ r0<- obj->clazz
-    cmp     r1, #0                      @ have we resolved this before?
-    beq     .LOP_CHECK_CAST_resolve         @ not resolved, do it now
-.LOP_CHECK_CAST_resolved:
-    cmp     r0, r1                      @ same class (trivial success)?
-    bne     .LOP_CHECK_CAST_fullcheck       @ no, do full check
-.LOP_CHECK_CAST_okay:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CHECK_CAST      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INSTANCE_OF: /* 0x20 */
-/* File: armv5te_taint/OP_INSTANCE_OF.S */
-    /*
-     * Check to see if an object reference is an instance of a class.
-     *
-     * Most common situation is a non-null object, being compared against
-     * an already-resolved class.
-     */
-    /* instance-of vA, vB, class@CCCC */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    GET_VREG(r0, r3)                    @ r0<- vB (object)
-    and     r9, r9, #15                 @ r9<- A
-    cmp     r0, #0                      @ is object null?
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- pDvmDex
-    beq     .LOP_INSTANCE_OF_store           @ null obj, not an instance, store r0
-    FETCH(r3, 1)                        @ r3<- CCCC
-    ldr     r2, [r2, #offDvmDex_pResClasses]    @ r2<- pDvmDex->pResClasses
-    ldr     r1, [r2, r3, lsl #2]        @ r1<- resolved class
-    ldr     r0, [r0, #offObject_clazz]  @ r0<- obj->clazz
-    cmp     r1, #0                      @ have we resolved this before?
-    beq     .LOP_INSTANCE_OF_resolve         @ not resolved, do it now
-.LOP_INSTANCE_OF_resolved: @ r0=obj->clazz, r1=resolved class
-    cmp     r0, r1                      @ same class (trivial success)?
-    beq     .LOP_INSTANCE_OF_trivial         @ yes, trivial finish
-    b       .LOP_INSTANCE_OF_fullcheck       @ no, do full check
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INSTANCE_OF      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ARRAY_LENGTH: /* 0x21 */
-/* File: armv6t2_taint/OP_ARRAY_LENGTH.S */
-    /*
-     * Return the length of an array.
-     */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r2, rINST, #8, #4           @ r2<- A
-    GET_VREG(r0, r1)                    @ r0<- vB (object ref)
-    cmp     r0, #0                      @ is object null?
-    beq     common_errNullObject        @ yup, fail
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- array length
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r3, r2)                    @ vB<- length
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ARRAY_LENGTH      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_NEW_INSTANCE: /* 0x22 */
-/* File: armv5te_taint/OP_NEW_INSTANCE.S */
-    /*
-     * Create a new instance of a class.
-     */
-    /* new-instance vAA, class@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResClasses]    @ r3<- pDvmDex->pResClasses
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved class
-#if defined(WITH_JIT)
-    add     r10, r3, r1, lsl #2         @ r10<- &resolved_class
-#endif
-    EXPORT_PC()                         @ req'd for init, resolve, alloc
-    cmp     r0, #0                      @ already resolved?
-    beq     .LOP_NEW_INSTANCE_resolve         @ no, resolve it now
-.LOP_NEW_INSTANCE_resolved:   @ r0=class
-    ldrb    r1, [r0, #offClassObject_status]    @ r1<- ClassStatus enum
-    cmp     r1, #CLASS_INITIALIZED      @ has class been initialized?
-    bne     .LOP_NEW_INSTANCE_needinit        @ no, init class now
-.LOP_NEW_INSTANCE_initialized: @ r0=class
-    mov     r1, #ALLOC_DONT_TRACK       @ flags for alloc call
-    bl      dvmAllocObject              @ r0<- new object
-    b       .LOP_NEW_INSTANCE_finish          @ continue
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NEW_INSTANCE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_NEW_ARRAY: /* 0x23 */
-/* File: armv5te_taint/OP_NEW_ARRAY.S */
-    /*
-     * Allocate an array of objects, specified with the array class
-     * and a count.
-     *
-     * The verifier guarantees that this is an array class, so we don't
-     * check for it here.
-     */
-    /* new-array vA, vB, class@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    FETCH(r2, 1)                        @ r2<- CCCC
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    GET_VREG(r1, r0)                    @ r1<- vB (array length)
-    ldr     r3, [r3, #offDvmDex_pResClasses]    @ r3<- pDvmDex->pResClasses
-    cmp     r1, #0                      @ check length
-    ldr     r0, [r3, r2, lsl #2]        @ r0<- resolved class
-    bmi     common_errNegativeArraySize @ negative length, bail - len in r1
-    cmp     r0, #0                      @ already resolved?
-    EXPORT_PC()                         @ req'd for resolve, alloc
-    bne     .LOP_NEW_ARRAY_finish          @ resolved, continue
-    b       .LOP_NEW_ARRAY_resolve         @ do resolve now
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NEW_ARRAY      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_FILLED_NEW_ARRAY: /* 0x24 */
-/* File: armv5te_taint/OP_FILLED_NEW_ARRAY.S */
-    /*
-     * Create a new array with elements filled from registers.
-     *
-     * for: filled-new-array, filled-new-array/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op {vCCCC..v(CCCC+AA-1)}, type@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResClasses]    @ r3<- pDvmDex->pResClasses
-    EXPORT_PC()                         @ need for resolve and alloc
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved class
-    mov     r10, rINST, lsr #8          @ r10<- AA or BA
-    cmp     r0, #0                      @ already resolved?
-    bne     .LOP_FILLED_NEW_ARRAY_continue        @ yes, continue on
-8:  ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    mov     r2, #0                      @ r2<- false
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveClass             @ r0<- call(clazz, ref)
-    cmp     r0, #0                      @ got null?
-    beq     common_exceptionThrown      @ yes, handle exception
-    b       .LOP_FILLED_NEW_ARRAY_continue
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_FILLED_NEW_ARRAY      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_FILLED_NEW_ARRAY_RANGE: /* 0x25 */
-/* File: armv5te_taint/OP_FILLED_NEW_ARRAY_RANGE.S */
-/* File: armv5te_taint/OP_FILLED_NEW_ARRAY.S */
-    /*
-     * Create a new array with elements filled from registers.
-     *
-     * for: filled-new-array, filled-new-array/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op {vCCCC..v(CCCC+AA-1)}, type@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResClasses]    @ r3<- pDvmDex->pResClasses
-    EXPORT_PC()                         @ need for resolve and alloc
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved class
-    mov     r10, rINST, lsr #8          @ r10<- AA or BA
-    cmp     r0, #0                      @ already resolved?
-    bne     .LOP_FILLED_NEW_ARRAY_RANGE_continue        @ yes, continue on
-8:  ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    mov     r2, #0                      @ r2<- false
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveClass             @ r0<- call(clazz, ref)
-    cmp     r0, #0                      @ got null?
-    beq     common_exceptionThrown      @ yes, handle exception
-    b       .LOP_FILLED_NEW_ARRAY_RANGE_continue
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_FILLED_NEW_ARRAY_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_FILL_ARRAY_DATA: /* 0x26 */
-/* File: armv5te_taint/OP_FILL_ARRAY_DATA.S */
-    /* fill-array-data vAA, +BBBBBBBB */
-    FETCH(r0, 1)                        @ r0<- bbbb (lo)
-    FETCH(r1, 2)                        @ r1<- BBBB (hi)
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    orr     r1, r0, r1, lsl #16         @ r1<- BBBBbbbb
-    GET_VREG(r0, r3)                    @ r0<- vAA (array object)
-    add     r1, rPC, r1, lsl #1         @ r1<- PC + BBBBbbbb*2 (array data off.)
-    EXPORT_PC();
-    bl      dvmInterpHandleFillArrayData@ fill the array with predefined data
-    cmp     r0, #0                      @ 0 means an exception is thrown
-    beq     common_exceptionThrown      @ has exception
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_FILL_ARRAY_DATA      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_THROW: /* 0x27 */
-/* File: armv5te_taint/OP_THROW.S */
-    /*
-     * Throw an exception object in the current thread.
-     */
-    /* throw vAA */
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    GET_VREG(r1, r2)                    @ r1<- vAA (exception object)
-    EXPORT_PC()                         @ exception handler can throw
-    cmp     r1, #0                      @ null object?
-    beq     common_errNullObject        @ yes, throw an NPE instead
-    @ bypass dvmSetException, just store it
-    str     r1, [rSELF, #offThread_exception]  @ thread->exception<- obj
-    b       common_exceptionThrown
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_THROW      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_GOTO: /* 0x28 */
-/* File: armv5te_taint/OP_GOTO.S */
-    /*
-     * Unconditional branch, 8-bit offset.
-     *
-     * The branch distance is a signed code-unit offset, which we need to
-     * double to get a byte offset.
-     */
-    /* goto +AA */
-    /* tuning: use sbfx for 6t2+ targets */
-    mov     r0, rINST, lsl #16          @ r0<- AAxx0000
-    movs    r1, r0, asr #24             @ r1<- ssssssAA (sign-extended)
-    add     r2, r1, r1                  @ r2<- byte offset, set flags
-       @ If backwards branch refresh rIBASE
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable] @ refresh handler base
-    FETCH_ADVANCE_INST_RB(r2)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    bmi     common_testUpdateProfile    @ (r0) check for trace hotness
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_GOTO      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_GOTO_16: /* 0x29 */
-/* File: armv5te_taint/OP_GOTO_16.S */
-    /*
-     * Unconditional branch, 16-bit offset.
-     *
-     * The branch distance is a signed code-unit offset, which we need to
-     * double to get a byte offset.
-     */
-    /* goto/16 +AAAA */
-    FETCH_S(r0, 1)                      @ r0<- ssssAAAA (sign-extended)
-    adds    r1, r0, r0                  @ r1<- byte offset, flags set
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable] @ refresh handler base
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    bmi     common_testUpdateProfile    @ (r0) hot trace head?
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_GOTO_16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_GOTO_32: /* 0x2a */
-/* File: armv5te_taint/OP_GOTO_32.S */
-    /*
-     * Unconditional branch, 32-bit offset.
-     *
-     * The branch distance is a signed code-unit offset, which we need to
-     * double to get a byte offset.
-     *
-     * Unlike most opcodes, this one is allowed to branch to itself, so
-     * our "backward branch" test must be "<=0" instead of "<0".  Because
-     * we need the V bit set, we'll use an adds to convert from Dalvik
-     * offset to byte offset.
-     */
-    /* goto/32 +AAAAAAAA */
-    FETCH(r0, 1)                        @ r0<- aaaa (lo)
-    FETCH(r1, 2)                        @ r1<- AAAA (hi)
-    orr     r0, r0, r1, lsl #16         @ r0<- AAAAaaaa
-    adds    r1, r0, r0                  @ r1<- byte offset
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrle   rIBASE, [rSELF, #offThread_curHandlerTable] @ refresh handler base
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-    ble     common_testUpdateProfile    @ (r0) hot trace head?
-#else
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-    ldrle   rIBASE, [rSELF, #offThread_curHandlerTable] @ refresh handler base
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_GOTO_32      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_PACKED_SWITCH: /* 0x2b */
-/* File: armv5te_taint/OP_PACKED_SWITCH.S */
-    /*
-     * Handle a packed-switch or sparse-switch instruction.  In both cases
-     * we decode it and hand it off to a helper function.
-     *
-     * We don't really expect backward branches in a switch statement, but
-     * they're perfectly legal, so we check for them here.
-     *
-     * When the JIT is present, all targets are considered treated as
-     * a potential trace heads regardless of branch direction.
-     *
-     * for: packed-switch, sparse-switch
-     */
-    /* op vAA, +BBBB */
-    FETCH(r0, 1)                        @ r0<- bbbb (lo)
-    FETCH(r1, 2)                        @ r1<- BBBB (hi)
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    orr     r0, r0, r1, lsl #16         @ r0<- BBBBbbbb
-    GET_VREG(r1, r3)                    @ r1<- vAA
-    add     r0, rPC, r0, lsl #1         @ r0<- PC + BBBBbbbb*2
-    bl      dvmInterpHandlePackedSwitch                       @ r0<- code-unit branch offset
-    adds    r1, r0, r0                  @ r1<- byte offset; clear V
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrle   rIBASE, [rSELF, #offThread_curHandlerTable] @ refresh handler base
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-    cmp     r0, #0
-    bne     common_updateProfile
-#else
-    ldrle   rIBASE, [rSELF, #offThread_curHandlerTable] @ refresh handler base
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_PACKED_SWITCH      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPARSE_SWITCH: /* 0x2c */
-/* File: armv5te_taint/OP_SPARSE_SWITCH.S */
-/* File: armv5te_taint/OP_PACKED_SWITCH.S */
-    /*
-     * Handle a packed-switch or sparse-switch instruction.  In both cases
-     * we decode it and hand it off to a helper function.
-     *
-     * We don't really expect backward branches in a switch statement, but
-     * they're perfectly legal, so we check for them here.
-     *
-     * When the JIT is present, all targets are considered treated as
-     * a potential trace heads regardless of branch direction.
-     *
-     * for: packed-switch, sparse-switch
-     */
-    /* op vAA, +BBBB */
-    FETCH(r0, 1)                        @ r0<- bbbb (lo)
-    FETCH(r1, 2)                        @ r1<- BBBB (hi)
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    orr     r0, r0, r1, lsl #16         @ r0<- BBBBbbbb
-    GET_VREG(r1, r3)                    @ r1<- vAA
-    add     r0, rPC, r0, lsl #1         @ r0<- PC + BBBBbbbb*2
-    bl      dvmInterpHandleSparseSwitch                       @ r0<- code-unit branch offset
-    adds    r1, r0, r0                  @ r1<- byte offset; clear V
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrle   rIBASE, [rSELF, #offThread_curHandlerTable] @ refresh handler base
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-    cmp     r0, #0
-    bne     common_updateProfile
-#else
-    ldrle   rIBASE, [rSELF, #offThread_curHandlerTable] @ refresh handler base
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPARSE_SWITCH      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CMPL_FLOAT: /* 0x2d */
-/* File: arm-vfp_taint/OP_CMPL_FLOAT.S */
-    /*
-     * Compare two floating-point values.  Puts 0, 1, or -1 into the
-     * destination register based on the results of the comparison.
-     *
-     * int compare(x, y) {
-     *     if (x == y) {
-     *         return 0;
-     *     } else if (x > y) {
-     *         return 1;
-     *     } else if (x < y) {
-     *         return -1;
-     *     } else {
-     *         return -1;
-     *     }
-     * }
-     */
-    /* op vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    flds    s0, [r2]                    @ s0<- vBB
-    flds    s1, [r3]                    @ s1<- vCC
-    fcmpes  s0, s1                      @ compare (vBB, vCC)
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    mvn     r0, #0                      @ r0<- -1 (default)
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    fmstat                              @ export status flags
-    movgt   r0, #1                      @ (greater than) r1<- 1
-    moveq   r0, #0                      @ (equal) r1<- 0
-    b       .LOP_CMPL_FLOAT_finish          @ argh
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CMPL_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CMPG_FLOAT: /* 0x2e */
-/* File: arm-vfp_taint/OP_CMPG_FLOAT.S */
-    /*
-     * Compare two floating-point values.  Puts 0, 1, or -1 into the
-     * destination register based on the results of the comparison.
-     *
-     * int compare(x, y) {
-     *     if (x == y) {
-     *         return 0;
-     *     } else if (x < y) {
-     *         return -1;
-     *     } else if (x > y) {
-     *         return 1;
-     *     } else {
-     *         return 1;
-     *     }
-     * }
-     */
-    /* op vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    flds    s0, [r2]                    @ s0<- vBB
-    flds    s1, [r3]                    @ s1<- vCC
-    fcmpes  s0, s1                      @ compare (vBB, vCC)
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    mov     r0, #1                      @ r0<- 1 (default)
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    fmstat                              @ export status flags
-    mvnmi   r0, #0                      @ (less than) r1<- -1
-    moveq   r0, #0                      @ (equal) r1<- 0
-    b       .LOP_CMPG_FLOAT_finish          @ argh
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CMPG_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CMPL_DOUBLE: /* 0x2f */
-/* File: arm-vfp_taint/OP_CMPL_DOUBLE.S */
-    /*
-     * Compare two floating-point values.  Puts 0, 1, or -1 into the
-     * destination register based on the results of the comparison.
-     *
-     * int compare(x, y) {
-     *     if (x == y) {
-     *         return 0;
-     *     } else if (x > y) {
-     *         return 1;
-     *     } else if (x < y) {
-     *         return -1;
-     *     } else {
-     *         return -1;
-     *     }
-     * }
-     */
-    /* op vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-// begin WITH_TAINT_TRACKING
-//    fldd    d0, [r2]                    @ d0<- vBB
-    flds    s0, [r2]
-    flds    s1, [r2, #8]
-//    fldd    d1, [r3]                    @ d1<- vCC
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-// end WITH_TAINT_TRACKING
-    fcmped  d0, d1                      @ compare (vBB, vCC)
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    mvn     r0, #0                      @ r0<- -1 (default)
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b       .LOP_CMPL_DOUBLE_finish          @ argh
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CMPL_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CMPG_DOUBLE: /* 0x30 */
-/* File: arm-vfp_taint/OP_CMPG_DOUBLE.S */
-    /*
-     * Compare two floating-point values.  Puts 0, 1, or -1 into the
-     * destination register based on the results of the comparison.
-     *
-     * int compare(x, y) {
-     *     if (x == y) {
-     *         return 0;
-     *     } else if (x < y) {
-     *         return -1;
-     *     } else if (x > y) {
-     *         return 1;
-     *     } else {
-     *         return 1;
-     *     }
-     * }
-     */
-    /* op vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-// begin WITH_TAINT_TRACKING
-//    fldd    d0, [r2]                    @ d0<- vBB
-    flds    s0, [r2]
-    flds    s1, [r2, #8]
-//    fldd    d1, [r3]                    @ d1<- vCC
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-// end WITH_TAINT_TRACKING
-    fcmped  d0, d1                      @ compare (vBB, vCC)
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    mov     r0, #1                      @ r0<- 1 (default)
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b       .LOP_CMPG_DOUBLE_finish          @ argh
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CMPG_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_CMP_LONG: /* 0x31 */
-/* File: armv5te_taint/OP_CMP_LONG.S */
-    /*
-     * Compare two 64-bit values.  Puts 0, 1, or -1 into the destination
-     * register based on the results of the comparison.
-     *
-     * We load the full values with LDM, but in practice many values could
-     * be resolved by only looking at the high word.  This could be made
-     * faster or slower by splitting the LDM into a pair of LDRs.
-     *
-     * If we just wanted to set condition flags, we could do this:
-     *  subs    ip, r0, r2
-     *  sbcs    ip, r1, r3
-     *  subeqs  ip, r0, r2
-     * Leaving { <0, 0, >0 } in ip.  However, we have to set it to a specific
-     * integer value, which we can do with 2 conditional mov/mvn instructions
-     * (set 1, set -1; if they're equal we already have 0 in ip), giving
-     * us a constant 5-cycle path plus a branch at the end to the
-     * instruction epilogue code.  The multi-compare approach below needs
-     * 2 or 3 cycles + branch if the high word doesn't match, 6 + branch
-     * in the worst case (the 64-bit values are equal).
-     */
-    /* cmp-long vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      cmp_long_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r1, r3                      @ compare (vBB+1, vCC+1)
-    blt     .LOP_CMP_LONG_less            @ signed compare on high part
-    bgt     .LOP_CMP_LONG_greater
-    subs    r1, r0, r2                  @ r1<- r0 - r2
-    bhi     .LOP_CMP_LONG_greater         @ unsigned compare on low part
-    bne     .LOP_CMP_LONG_less
-    b       .LOP_CMP_LONG_finish          @ equal; r1 already holds 0
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_CMP_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_EQ: /* 0x32 */
-/* File: armv6t2_taint/OP_IF_EQ.S */
-/* File: armv6t2_taint/bincmp.S */
-    /*
-     * Generic two-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * For: if-eq, if-ne, if-lt, if-ge, if-gt, if-le
-     */
-    /* if-cmp vA, vB, +CCCC */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r0, rINST, #8, #4           @ r0<- A
-    GET_VREG(r3, r1)                    @ r3<- vB
-    GET_VREG(r2, r0)                    @ r2<- vA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, r3                      @ compare (vA, vB)
-    movne r1, #2                 @ r1<- BYTE branch dist for not-taken
-    adds    r2, r1, r1                  @ convert to bytes, check sign
-    FETCH_ADVANCE_INST_RB(r2)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-    cmp     r0, #0
-    bne     common_updateProfile
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_EQ      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_NE: /* 0x33 */
-/* File: armv6t2_taint/OP_IF_NE.S */
-/* File: armv6t2_taint/bincmp.S */
-    /*
-     * Generic two-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * For: if-eq, if-ne, if-lt, if-ge, if-gt, if-le
-     */
-    /* if-cmp vA, vB, +CCCC */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r0, rINST, #8, #4           @ r0<- A
-    GET_VREG(r3, r1)                    @ r3<- vB
-    GET_VREG(r2, r0)                    @ r2<- vA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, r3                      @ compare (vA, vB)
-    moveq r1, #2                 @ r1<- BYTE branch dist for not-taken
-    adds    r2, r1, r1                  @ convert to bytes, check sign
-    FETCH_ADVANCE_INST_RB(r2)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-    cmp     r0, #0
-    bne     common_updateProfile
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_NE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_LT: /* 0x34 */
-/* File: armv6t2_taint/OP_IF_LT.S */
-/* File: armv6t2_taint/bincmp.S */
-    /*
-     * Generic two-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * For: if-eq, if-ne, if-lt, if-ge, if-gt, if-le
-     */
-    /* if-cmp vA, vB, +CCCC */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r0, rINST, #8, #4           @ r0<- A
-    GET_VREG(r3, r1)                    @ r3<- vB
-    GET_VREG(r2, r0)                    @ r2<- vA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, r3                      @ compare (vA, vB)
-    movge r1, #2                 @ r1<- BYTE branch dist for not-taken
-    adds    r2, r1, r1                  @ convert to bytes, check sign
-    FETCH_ADVANCE_INST_RB(r2)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-    cmp     r0, #0
-    bne     common_updateProfile
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_LT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_GE: /* 0x35 */
-/* File: armv6t2_taint/OP_IF_GE.S */
-/* File: armv6t2_taint/bincmp.S */
-    /*
-     * Generic two-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * For: if-eq, if-ne, if-lt, if-ge, if-gt, if-le
-     */
-    /* if-cmp vA, vB, +CCCC */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r0, rINST, #8, #4           @ r0<- A
-    GET_VREG(r3, r1)                    @ r3<- vB
-    GET_VREG(r2, r0)                    @ r2<- vA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, r3                      @ compare (vA, vB)
-    movlt r1, #2                 @ r1<- BYTE branch dist for not-taken
-    adds    r2, r1, r1                  @ convert to bytes, check sign
-    FETCH_ADVANCE_INST_RB(r2)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-    cmp     r0, #0
-    bne     common_updateProfile
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_GE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_GT: /* 0x36 */
-/* File: armv6t2_taint/OP_IF_GT.S */
-/* File: armv6t2_taint/bincmp.S */
-    /*
-     * Generic two-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * For: if-eq, if-ne, if-lt, if-ge, if-gt, if-le
-     */
-    /* if-cmp vA, vB, +CCCC */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r0, rINST, #8, #4           @ r0<- A
-    GET_VREG(r3, r1)                    @ r3<- vB
-    GET_VREG(r2, r0)                    @ r2<- vA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, r3                      @ compare (vA, vB)
-    movle r1, #2                 @ r1<- BYTE branch dist for not-taken
-    adds    r2, r1, r1                  @ convert to bytes, check sign
-    FETCH_ADVANCE_INST_RB(r2)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-    cmp     r0, #0
-    bne     common_updateProfile
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_GT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_LE: /* 0x37 */
-/* File: armv6t2_taint/OP_IF_LE.S */
-/* File: armv6t2_taint/bincmp.S */
-    /*
-     * Generic two-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * For: if-eq, if-ne, if-lt, if-ge, if-gt, if-le
-     */
-    /* if-cmp vA, vB, +CCCC */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r0, rINST, #8, #4           @ r0<- A
-    GET_VREG(r3, r1)                    @ r3<- vB
-    GET_VREG(r2, r0)                    @ r2<- vA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, r3                      @ compare (vA, vB)
-    movgt r1, #2                 @ r1<- BYTE branch dist for not-taken
-    adds    r2, r1, r1                  @ convert to bytes, check sign
-    FETCH_ADVANCE_INST_RB(r2)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-    cmp     r0, #0
-    bne     common_updateProfile
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]  @ refresh rIBASE
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_LE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_EQZ: /* 0x38 */
-/* File: armv5te_taint/OP_IF_EQZ.S */
-/* File: armv5te_taint/zcmp.S */
-    /*
-     * Generic one-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * for: if-eqz, if-nez, if-ltz, if-gez, if-gtz, if-lez
-     */
-    /* if-cmp vAA, +BBBB */
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    GET_VREG(r2, r0)                    @ r2<- vAA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, #0                      @ compare (vA, 0)
-    movne r1, #2                 @ r1<- inst branch dist for not-taken
-    adds    r1, r1, r1                  @ convert to bytes & set flags
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-    cmp     r0,#0
-    bne     common_updateProfile        @ test for JIT off at target
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_EQZ      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_NEZ: /* 0x39 */
-/* File: armv5te_taint/OP_IF_NEZ.S */
-/* File: armv5te_taint/zcmp.S */
-    /*
-     * Generic one-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * for: if-eqz, if-nez, if-ltz, if-gez, if-gtz, if-lez
-     */
-    /* if-cmp vAA, +BBBB */
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    GET_VREG(r2, r0)                    @ r2<- vAA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, #0                      @ compare (vA, 0)
-    moveq r1, #2                 @ r1<- inst branch dist for not-taken
-    adds    r1, r1, r1                  @ convert to bytes & set flags
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-    cmp     r0,#0
-    bne     common_updateProfile        @ test for JIT off at target
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_NEZ      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_LTZ: /* 0x3a */
-/* File: armv5te_taint/OP_IF_LTZ.S */
-/* File: armv5te_taint/zcmp.S */
-    /*
-     * Generic one-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * for: if-eqz, if-nez, if-ltz, if-gez, if-gtz, if-lez
-     */
-    /* if-cmp vAA, +BBBB */
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    GET_VREG(r2, r0)                    @ r2<- vAA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, #0                      @ compare (vA, 0)
-    movge r1, #2                 @ r1<- inst branch dist for not-taken
-    adds    r1, r1, r1                  @ convert to bytes & set flags
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-    cmp     r0,#0
-    bne     common_updateProfile        @ test for JIT off at target
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_LTZ      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_GEZ: /* 0x3b */
-/* File: armv5te_taint/OP_IF_GEZ.S */
-/* File: armv5te_taint/zcmp.S */
-    /*
-     * Generic one-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * for: if-eqz, if-nez, if-ltz, if-gez, if-gtz, if-lez
-     */
-    /* if-cmp vAA, +BBBB */
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    GET_VREG(r2, r0)                    @ r2<- vAA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, #0                      @ compare (vA, 0)
-    movlt r1, #2                 @ r1<- inst branch dist for not-taken
-    adds    r1, r1, r1                  @ convert to bytes & set flags
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-    cmp     r0,#0
-    bne     common_updateProfile        @ test for JIT off at target
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_GEZ      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_GTZ: /* 0x3c */
-/* File: armv5te_taint/OP_IF_GTZ.S */
-/* File: armv5te_taint/zcmp.S */
-    /*
-     * Generic one-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * for: if-eqz, if-nez, if-ltz, if-gez, if-gtz, if-lez
-     */
-    /* if-cmp vAA, +BBBB */
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    GET_VREG(r2, r0)                    @ r2<- vAA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, #0                      @ compare (vA, 0)
-    movle r1, #2                 @ r1<- inst branch dist for not-taken
-    adds    r1, r1, r1                  @ convert to bytes & set flags
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-    cmp     r0,#0
-    bne     common_updateProfile        @ test for JIT off at target
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_GTZ      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IF_LEZ: /* 0x3d */
-/* File: armv5te_taint/OP_IF_LEZ.S */
-/* File: armv5te_taint/zcmp.S */
-    /*
-     * Generic one-operand compare-and-branch operation.  Provide a "revcmp"
-     * fragment that specifies the *reverse* comparison to perform, e.g.
-     * for "if-le" you would use "gt".
-     *
-     * for: if-eqz, if-nez, if-ltz, if-gez, if-gtz, if-lez
-     */
-    /* if-cmp vAA, +BBBB */
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    GET_VREG(r2, r0)                    @ r2<- vAA
-    FETCH_S(r1, 1)                      @ r1<- branch offset, in code units
-    cmp     r2, #0                      @ compare (vA, 0)
-    movgt r1, #2                 @ r1<- inst branch dist for not-taken
-    adds    r1, r1, r1                  @ convert to bytes & set flags
-    FETCH_ADVANCE_INST_RB(r1)           @ update rPC, load rINST
-#if defined(WITH_JIT)
-    ldr     r0, [rSELF, #offThread_pJitProfTable]
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-    cmp     r0,#0
-    bne     common_updateProfile        @ test for JIT off at target
-#else
-    ldrmi   rIBASE, [rSELF, #offThread_curHandlerTable]   @ refresh table base
-#endif
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IF_LEZ      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_3E: /* 0x3e */
-/* File: armv5te_taint/OP_UNUSED_3E.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_3E      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_3F: /* 0x3f */
-/* File: armv5te_taint/OP_UNUSED_3F.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_3F      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_40: /* 0x40 */
-/* File: armv5te_taint/OP_UNUSED_40.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_40      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_41: /* 0x41 */
-/* File: armv5te_taint/OP_UNUSED_41.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_41      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_42: /* 0x42 */
-/* File: armv5te_taint/OP_UNUSED_42.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_42      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_43: /* 0x43 */
-/* File: armv5te_taint/OP_UNUSED_43.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_43      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AGET: /* 0x44 */
-/* File: armv5te_taint/OP_AGET.S */
-    /*
-     * Array get, 32 bits or less.  vAA <- vBB[vCC].
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aget, aget-object, aget-boolean, aget-byte, aget-char, aget-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_AGET_taint_prop_1
-// end WITH_TAINT_TRACKING
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #2     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-// begin WITH_TAINT_TRACKING
-//    bcs     common_errArrayIndex        @ index >= length, bail	// in subroutine
-//    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST // in subroutine
-    bl		.LOP_AGET_taint_prop_2
-// end WITH_TAINT_TRACKING
-    ldr   r2, [r0, #offArrayObject_contents]  @ r2<- vBB[vCC]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r9)                    @ vAA<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AGET      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AGET_WIDE: /* 0x45 */
-/* File: armv5te_taint/OP_AGET_WIDE.S */
-    /*
-     * Array get, 64 bits.  vAA <- vBB[vCC].
-     *
-     * Arrays of long/double are 64-bit aligned, so it's okay to use LDRD.
-     */
-    /* aget-wide vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_AGET_WIDE_taint_prop      @ r10<- taint
-// end WITH_TAINT_TRACKING
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #3          @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-    bcc     .LOP_AGET_WIDE_finish          @ okay, continue below
-    b       common_errArrayIndex        @ index >= length, bail
-    @ May want to swap the order of these two branches depending on how the
-    @ branch prediction (if any) handles conditional forward branches vs.
-    @ unconditional forward branches.
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AGET_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AGET_OBJECT: /* 0x46 */
-/* File: armv5te_taint/OP_AGET_OBJECT.S */
-/* File: armv5te_taint/OP_AGET.S */
-    /*
-     * Array get, 32 bits or less.  vAA <- vBB[vCC].
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aget, aget-object, aget-boolean, aget-byte, aget-char, aget-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_AGET_OBJECT_taint_prop_1
-// end WITH_TAINT_TRACKING
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #2     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-// begin WITH_TAINT_TRACKING
-//    bcs     common_errArrayIndex        @ index >= length, bail	// in subroutine
-//    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST // in subroutine
-    bl		.LOP_AGET_OBJECT_taint_prop_2
-// end WITH_TAINT_TRACKING
-    ldr   r2, [r0, #offArrayObject_contents]  @ r2<- vBB[vCC]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r9)                    @ vAA<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AGET_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AGET_BOOLEAN: /* 0x47 */
-/* File: armv5te_taint/OP_AGET_BOOLEAN.S */
-/* File: armv5te_taint/OP_AGET.S */
-    /*
-     * Array get, 32 bits or less.  vAA <- vBB[vCC].
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aget, aget-object, aget-boolean, aget-byte, aget-char, aget-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_AGET_BOOLEAN_taint_prop_1
-// end WITH_TAINT_TRACKING
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #0     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-// begin WITH_TAINT_TRACKING
-//    bcs     common_errArrayIndex        @ index >= length, bail	// in subroutine
-//    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST // in subroutine
-    bl		.LOP_AGET_BOOLEAN_taint_prop_2
-// end WITH_TAINT_TRACKING
-    ldrb   r2, [r0, #offArrayObject_contents]  @ r2<- vBB[vCC]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r9)                    @ vAA<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AGET_BOOLEAN      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AGET_BYTE: /* 0x48 */
-/* File: armv5te_taint/OP_AGET_BYTE.S */
-/* File: armv5te_taint/OP_AGET.S */
-    /*
-     * Array get, 32 bits or less.  vAA <- vBB[vCC].
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aget, aget-object, aget-boolean, aget-byte, aget-char, aget-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_AGET_BYTE_taint_prop_1
-// end WITH_TAINT_TRACKING
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #0     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-// begin WITH_TAINT_TRACKING
-//    bcs     common_errArrayIndex        @ index >= length, bail	// in subroutine
-//    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST // in subroutine
-    bl		.LOP_AGET_BYTE_taint_prop_2
-// end WITH_TAINT_TRACKING
-    ldrsb   r2, [r0, #offArrayObject_contents]  @ r2<- vBB[vCC]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r9)                    @ vAA<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AGET_BYTE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AGET_CHAR: /* 0x49 */
-/* File: armv5te_taint/OP_AGET_CHAR.S */
-/* File: armv5te_taint/OP_AGET.S */
-    /*
-     * Array get, 32 bits or less.  vAA <- vBB[vCC].
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aget, aget-object, aget-boolean, aget-byte, aget-char, aget-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_AGET_CHAR_taint_prop_1
-// end WITH_TAINT_TRACKING
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #1     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-// begin WITH_TAINT_TRACKING
-//    bcs     common_errArrayIndex        @ index >= length, bail	// in subroutine
-//    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST // in subroutine
-    bl		.LOP_AGET_CHAR_taint_prop_2
-// end WITH_TAINT_TRACKING
-    ldrh   r2, [r0, #offArrayObject_contents]  @ r2<- vBB[vCC]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r9)                    @ vAA<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AGET_CHAR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AGET_SHORT: /* 0x4a */
-/* File: armv5te_taint/OP_AGET_SHORT.S */
-/* File: armv5te_taint/OP_AGET.S */
-    /*
-     * Array get, 32 bits or less.  vAA <- vBB[vCC].
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aget, aget-object, aget-boolean, aget-byte, aget-char, aget-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_AGET_SHORT_taint_prop_1
-// end WITH_TAINT_TRACKING
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #1     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-// begin WITH_TAINT_TRACKING
-//    bcs     common_errArrayIndex        @ index >= length, bail	// in subroutine
-//    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST // in subroutine
-    bl		.LOP_AGET_SHORT_taint_prop_2
-// end WITH_TAINT_TRACKING
-    ldrsh   r2, [r0, #offArrayObject_contents]  @ r2<- vBB[vCC]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r2, r9)                    @ vAA<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AGET_SHORT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_APUT: /* 0x4b */
-/* File: armv5te_taint/OP_APUT.S */
-    /*
-     * Array put, 32 bits or less.  vBB[vCC] <- vAA.
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aput, aput-boolean, aput-byte, aput-char, aput-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #2     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-    bcs     common_errArrayIndex        @ index >= length, bail
-// begin WITH_TAINT_TRACKING
-    bl	.LOP_APUT_taint_prop
-// end WITH_TAINT_TRACKING
-    GET_VREG(r2, r9)                    @ r2<- vAA
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    str  r2, [r0, #offArrayObject_contents]  @ vBB[vCC]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_APUT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_APUT_WIDE: /* 0x4c */
-/* File: armv5te_taint/OP_APUT_WIDE.S */
-    /*
-     * Array put, 64 bits.  vBB[vCC] <- vAA.
-     *
-     * Arrays of long/double are 64-bit aligned, so it's okay to use STRD.
-     */
-    /* aput-wide vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-// begin WITH_TAINT_TRACKING
-    mov     r10, r0
-// end WITH_TAINT_TRACKING
-    add     r0, r0, r1, lsl #3          @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-// begin WITH_TAINT_TRACKING
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    bcc     .LOP_APUT_WIDE_finish          @ okay, continue below
-    b       common_errArrayIndex        @ index >= length, bail
-    @ May want to swap the order of these two branches depending on how the
-    @ branch prediction (if any) handles conditional forward branches vs.
-    @ unconditional forward branches.
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_APUT_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_APUT_OBJECT: /* 0x4d */
-/* File: armv5te_taint/OP_APUT_OBJECT.S */
-    /*
-     * Store an object into an array.  vBB[vCC] <- vAA.
-     */
-    /* op vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-    GET_VREG(rINST, r2)                 @ rINST<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_APUT_OBJECT_taint_prop_1
-// end WITH_TAINT_TRACKING
-    cmp     rINST, #0                   @ null array object?
-    GET_VREG(r9, r9)                    @ r9<- vAA
-    beq     common_errNullObject        @ yes, bail
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_APUT_OBJECT_taint_prop_2
-// end WITH_TAINT_TRACKING
-    ldr     r3, [rINST, #offArrayObject_length]   @ r3<- arrayObj->length
-    add     r10, rINST, r1, lsl #2      @ r10<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-    bcc     .LOP_APUT_OBJECT_finish          @ we're okay, continue on
-    b       common_errArrayIndex        @ index >= length, bail
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_APUT_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_APUT_BOOLEAN: /* 0x4e */
-/* File: armv5te_taint/OP_APUT_BOOLEAN.S */
-/* File: armv5te_taint/OP_APUT.S */
-    /*
-     * Array put, 32 bits or less.  vBB[vCC] <- vAA.
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aput, aput-boolean, aput-byte, aput-char, aput-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #0     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-    bcs     common_errArrayIndex        @ index >= length, bail
-// begin WITH_TAINT_TRACKING
-    bl	.LOP_APUT_BOOLEAN_taint_prop
-// end WITH_TAINT_TRACKING
-    GET_VREG(r2, r9)                    @ r2<- vAA
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    strb  r2, [r0, #offArrayObject_contents]  @ vBB[vCC]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_APUT_BOOLEAN      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_APUT_BYTE: /* 0x4f */
-/* File: armv5te_taint/OP_APUT_BYTE.S */
-/* File: armv5te_taint/OP_APUT.S */
-    /*
-     * Array put, 32 bits or less.  vBB[vCC] <- vAA.
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aput, aput-boolean, aput-byte, aput-char, aput-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #0     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-    bcs     common_errArrayIndex        @ index >= length, bail
-// begin WITH_TAINT_TRACKING
-    bl	.LOP_APUT_BYTE_taint_prop
-// end WITH_TAINT_TRACKING
-    GET_VREG(r2, r9)                    @ r2<- vAA
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    strb  r2, [r0, #offArrayObject_contents]  @ vBB[vCC]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_APUT_BYTE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_APUT_CHAR: /* 0x50 */
-/* File: armv5te_taint/OP_APUT_CHAR.S */
-/* File: armv5te_taint/OP_APUT.S */
-    /*
-     * Array put, 32 bits or less.  vBB[vCC] <- vAA.
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aput, aput-boolean, aput-byte, aput-char, aput-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #1     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-    bcs     common_errArrayIndex        @ index >= length, bail
-// begin WITH_TAINT_TRACKING
-    bl	.LOP_APUT_CHAR_taint_prop
-// end WITH_TAINT_TRACKING
-    GET_VREG(r2, r9)                    @ r2<- vAA
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    strh  r2, [r0, #offArrayObject_contents]  @ vBB[vCC]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_APUT_CHAR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_APUT_SHORT: /* 0x51 */
-/* File: armv5te_taint/OP_APUT_SHORT.S */
-/* File: armv5te_taint/OP_APUT.S */
-    /*
-     * Array put, 32 bits or less.  vBB[vCC] <- vAA.
-     *
-     * Note: using the usual FETCH/and/shift stuff, this fits in exactly 17
-     * instructions.  We use a pair of FETCH_Bs instead.
-     *
-     * for: aput, aput-boolean, aput-byte, aput-char, aput-short
-     */
-    /* op vAA, vBB, vCC */
-    FETCH_B(r2, 1, 0)                   @ r2<- BB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    FETCH_B(r3, 1, 1)                   @ r3<- CC
-    GET_VREG(r0, r2)                    @ r0<- vBB (array object)
-    GET_VREG(r1, r3)                    @ r1<- vCC (requested index)
-    cmp     r0, #0                      @ null array object?
-    beq     common_errNullObject        @ yes, bail
-    ldr     r3, [r0, #offArrayObject_length]    @ r3<- arrayObj->length
-    add     r0, r0, r1, lsl #1     @ r0<- arrayObj + index*width
-    cmp     r1, r3                      @ compare unsigned index, length
-    bcs     common_errArrayIndex        @ index >= length, bail
-// begin WITH_TAINT_TRACKING
-    bl	.LOP_APUT_SHORT_taint_prop
-// end WITH_TAINT_TRACKING
-    GET_VREG(r2, r9)                    @ r2<- vAA
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    strh  r2, [r0, #offArrayObject_contents]  @ vBB[vCC]<- r2
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_APUT_SHORT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET: /* 0x52 */
-/* File: armv6t2_taint/OP_IGET.S */
-    /*
-     * General 32-bit instance field get.
-     *
-     * for: iget, iget-object, iget-boolean, iget-byte, iget-char, iget-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_finish
-    b       common_exceptionThrown
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_WIDE: /* 0x53 */
-/* File: armv6t2_taint/OP_IGET_WIDE.S */
-    /*
-     * Wide 32-bit instance field get.
-     */
-    /* iget-wide vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_WIDE_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_WIDE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method] @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_WIDE_finish
-    b       common_exceptionThrown
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_OBJECT: /* 0x54 */
-/* File: armv5te_taint/OP_IGET_OBJECT.S */
-/* File: armv5te_taint/OP_IGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field get.
-     *
-     * for: iget, iget-object, iget-boolean, iget-byte, iget-char, iget-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_OBJECT_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_OBJECT_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_OBJECT_finish
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_BOOLEAN: /* 0x55 */
-/* File: armv5te_taint/OP_IGET_BOOLEAN.S */
-@include "armv5te_taint/OP_IGET.S" { "load":"ldrb", "sqnum":"1" }
-/* File: armv5te_taint/OP_IGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field get.
-     *
-     * for: iget, iget-object, iget-boolean, iget-byte, iget-char, iget-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_BOOLEAN_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_BOOLEAN_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_BOOLEAN_finish
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_BOOLEAN      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_BYTE: /* 0x56 */
-/* File: armv5te_taint/OP_IGET_BYTE.S */
-@include "armv5te_taint/OP_IGET.S" { "load":"ldrsb", "sqnum":"2" }
-/* File: armv5te_taint/OP_IGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field get.
-     *
-     * for: iget, iget-object, iget-boolean, iget-byte, iget-char, iget-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_BYTE_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_BYTE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_BYTE_finish
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_BYTE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_CHAR: /* 0x57 */
-/* File: armv5te_taint/OP_IGET_CHAR.S */
-@include "armv5te_taint/OP_IGET.S" { "load":"ldrh", "sqnum":"3" }
-/* File: armv5te_taint/OP_IGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field get.
-     *
-     * for: iget, iget-object, iget-boolean, iget-byte, iget-char, iget-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_CHAR_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_CHAR_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_CHAR_finish
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_CHAR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_SHORT: /* 0x58 */
-/* File: armv5te_taint/OP_IGET_SHORT.S */
-@include "armv5te_taint/OP_IGET.S" { "load":"ldrsh", "sqnum":"4" }
-/* File: armv5te_taint/OP_IGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field get.
-     *
-     * for: iget, iget-object, iget-boolean, iget-byte, iget-char, iget-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_SHORT_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_SHORT_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_SHORT_finish
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_SHORT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT: /* 0x59 */
-/* File: armv6t2_taint/OP_IPUT.S */
-    /*
-     * General 32-bit instance field put.
-     *
-     * for: iput, iput-object, iput-boolean, iput-byte, iput-char, iput-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_finish          @ yes, finish up
-    b       common_exceptionThrown
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_WIDE: /* 0x5a */
-/* File: armv6t2_taint/OP_IPUT_WIDE.S */
-    /* iput-wide vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_WIDE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method] @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_WIDE_finish          @ yes, finish up
-    b       common_exceptionThrown
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_OBJECT: /* 0x5b */
-/* File: armv5te_taint/OP_IPUT_OBJECT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * 32-bit instance field put.
-     *
-     * for: iput-object, iput-object-volatile
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_OBJECT_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_OBJECT_finish          @ yes, finish up
-    b       common_exceptionThrown
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_BOOLEAN: /* 0x5c */
-/* File: armv5te_taint/OP_IPUT_BOOLEAN.S */
-@include "armv5te_taint/OP_IPUT.S" { "store":"strb", "sqnum":"1" }
-/* File: armv5te_taint/OP_IPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field put.
-     *
-     * for: iput, iput-boolean, iput-byte, iput-char, iput-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_BOOLEAN_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_BOOLEAN_finish          @ yes, finish up
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_BOOLEAN      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_BYTE: /* 0x5d */
-/* File: armv5te_taint/OP_IPUT_BYTE.S */
-@include "armv5te_taint/OP_IPUT.S" { "store":"strb", "sqnum":"2" }
-/* File: armv5te_taint/OP_IPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field put.
-     *
-     * for: iput, iput-boolean, iput-byte, iput-char, iput-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_BYTE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_BYTE_finish          @ yes, finish up
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_BYTE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_CHAR: /* 0x5e */
-/* File: armv5te_taint/OP_IPUT_CHAR.S */
-@include "armv5te_taint/OP_IPUT.S" { "store":"strh", "sqnum":"3" }
-/* File: armv5te_taint/OP_IPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field put.
-     *
-     * for: iput, iput-boolean, iput-byte, iput-char, iput-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_CHAR_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_CHAR_finish          @ yes, finish up
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_CHAR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_SHORT: /* 0x5f */
-/* File: armv5te_taint/OP_IPUT_SHORT.S */
-@include "armv5te_taint/OP_IPUT.S" { "store":"strh", "sqnum":"4" }
-/* File: armv5te_taint/OP_IPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field put.
-     *
-     * for: iput, iput-boolean, iput-byte, iput-char, iput-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_SHORT_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_SHORT_finish          @ yes, finish up
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_SHORT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET: /* 0x60 */
-/* File: armv5te_taint/OP_SGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SGET handler.
-     *
-     * for: sget, sget-object, sget-boolean, sget-byte, sget-char, sget-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_resolve         @ yes, do resolve
-.LOP_SGET_finish: @ field ptr in r0
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SGET_taint_prop
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_WIDE: /* 0x61 */
-/* File: armv5te_taint/OP_SGET_WIDE.S */
-    /*
-     * 64-bit SGET handler.
-     */
-    /* sget-wide vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_WIDE_resolve         @ yes, do resolve
-    b		.LOP_SGET_WIDE_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_OBJECT: /* 0x62 */
-/* File: armv5te_taint/OP_SGET_OBJECT.S */
-/* File: armv5te_taint/OP_SGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SGET handler.
-     *
-     * for: sget, sget-object, sget-boolean, sget-byte, sget-char, sget-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_OBJECT_resolve         @ yes, do resolve
-.LOP_SGET_OBJECT_finish: @ field ptr in r0
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SGET_OBJECT_taint_prop
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_BOOLEAN: /* 0x63 */
-/* File: armv5te_taint/OP_SGET_BOOLEAN.S */
-/* File: armv5te_taint/OP_SGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SGET handler.
-     *
-     * for: sget, sget-object, sget-boolean, sget-byte, sget-char, sget-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_BOOLEAN_resolve         @ yes, do resolve
-.LOP_SGET_BOOLEAN_finish: @ field ptr in r0
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SGET_BOOLEAN_taint_prop
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_BOOLEAN      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_BYTE: /* 0x64 */
-/* File: armv5te_taint/OP_SGET_BYTE.S */
-/* File: armv5te_taint/OP_SGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SGET handler.
-     *
-     * for: sget, sget-object, sget-boolean, sget-byte, sget-char, sget-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_BYTE_resolve         @ yes, do resolve
-.LOP_SGET_BYTE_finish: @ field ptr in r0
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SGET_BYTE_taint_prop
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_BYTE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_CHAR: /* 0x65 */
-/* File: armv5te_taint/OP_SGET_CHAR.S */
-/* File: armv5te_taint/OP_SGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SGET handler.
-     *
-     * for: sget, sget-object, sget-boolean, sget-byte, sget-char, sget-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_CHAR_resolve         @ yes, do resolve
-.LOP_SGET_CHAR_finish: @ field ptr in r0
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SGET_CHAR_taint_prop
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_CHAR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_SHORT: /* 0x66 */
-/* File: armv5te_taint/OP_SGET_SHORT.S */
-/* File: armv5te_taint/OP_SGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SGET handler.
-     *
-     * for: sget, sget-object, sget-boolean, sget-byte, sget-char, sget-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_SHORT_resolve         @ yes, do resolve
-.LOP_SGET_SHORT_finish: @ field ptr in r0
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SGET_SHORT_taint_prop
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_SHORT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT: /* 0x67 */
-/* File: armv5te_taint/OP_SPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SPUT handler.
-     *
-     * for: sput, sput-boolean, sput-byte, sput-char, sput-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]        @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_resolve         @ yes, do resolve
-.LOP_SPUT_finish:   @ field ptr in r0
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- fp[AA]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SPUT_taint_prop
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_WIDE: /* 0x68 */
-/* File: armv5te_taint/OP_SPUT_WIDE.S */
-    /*
-     * 64-bit SPUT handler.
-     */
-    /* sput-wide vAA, field@BBBB */
-    ldr     r0, [rSELF, #offThread_methodClassDex]  @ r0<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r0, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    ldr     r2, [r10, r1, lsl #2]        @ r2<- resolved StaticField ptr
-// begin WITH_TAINT_TRACKING
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    cmp     r2, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_WIDE_resolve         @ yes, do resolve
-.LOP_SPUT_WIDE_finish: @ field ptr in r2, AA in r9
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SPUT_WIDE_taint_prop
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(r10)                @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    str	    r3, [r2, #offStaticField_taint]
-// end WITH_TAINT_TRACKING
-    .if 0
-    add     r2, r2, #offStaticField_value @ r2<- pointer to data
-    bl      dvmQuasiAtomicSwap64Sync    @ stores r0/r1 into addr r2
-    .else
-    strd    r0, [r2, #offStaticField_value] @ field<- vAA/vAA+1
-    .endif
-    GOTO_OPCODE(r10)                    @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_WIDE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_OBJECT: /* 0x69 */
-/* File: armv5te_taint/OP_SPUT_OBJECT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * 32-bit SPUT handler for objects
-     *
-     * for: sput-object, sput-object-volatile
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]        @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_OBJECT_resolve         @ yes, do resolve
-.LOP_SPUT_OBJECT_finish:   @ field ptr in r0
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- fp[AA]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r3, r2, r3)          @ r3<- taint
-//    ldr     r2, [rSELF, #offThread_cardTable]  @ r2<- card table base
-    ldr     r10, [rSELF, #offThread_cardTable]  @ r10<- card table base
-// end WITH_TAINT_TRACKING
-    ldr     r9, [r0, #offField_clazz]   @ r9<- field->clazz
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    @ no-op                         @ releasing store
-    b       .LOP_SPUT_OBJECT_end
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_OBJECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_BOOLEAN: /* 0x6a */
-/* File: armv5te_taint/OP_SPUT_BOOLEAN.S */
-/* File: armv5te_taint/OP_SPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SPUT handler.
-     *
-     * for: sput, sput-boolean, sput-byte, sput-char, sput-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]        @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_BOOLEAN_resolve         @ yes, do resolve
-.LOP_SPUT_BOOLEAN_finish:   @ field ptr in r0
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- fp[AA]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SPUT_BOOLEAN_taint_prop
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_BOOLEAN      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_BYTE: /* 0x6b */
-/* File: armv5te_taint/OP_SPUT_BYTE.S */
-/* File: armv5te_taint/OP_SPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SPUT handler.
-     *
-     * for: sput, sput-boolean, sput-byte, sput-char, sput-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]        @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_BYTE_resolve         @ yes, do resolve
-.LOP_SPUT_BYTE_finish:   @ field ptr in r0
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- fp[AA]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SPUT_BYTE_taint_prop
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_BYTE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_CHAR: /* 0x6c */
-/* File: armv5te_taint/OP_SPUT_CHAR.S */
-/* File: armv5te_taint/OP_SPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SPUT handler.
-     *
-     * for: sput, sput-boolean, sput-byte, sput-char, sput-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]        @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_CHAR_resolve         @ yes, do resolve
-.LOP_SPUT_CHAR_finish:   @ field ptr in r0
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- fp[AA]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SPUT_CHAR_taint_prop
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_CHAR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_SHORT: /* 0x6d */
-/* File: armv5te_taint/OP_SPUT_SHORT.S */
-/* File: armv5te_taint/OP_SPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SPUT handler.
-     *
-     * for: sput, sput-boolean, sput-byte, sput-char, sput-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]        @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_SHORT_resolve         @ yes, do resolve
-.LOP_SPUT_SHORT_finish:   @ field ptr in r0
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- fp[AA]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SPUT_SHORT_taint_prop
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_SHORT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_VIRTUAL: /* 0x6e */
-/* File: armv5te_taint/OP_INVOKE_VIRTUAL.S */
-    /*
-     * Handle a virtual method call.
-     *
-     * for: invoke-virtual, invoke-virtual/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op vAA, {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResMethods]    @ r3<- pDvmDex->pResMethods
-    FETCH(r10, 2)                       @ r10<- GFED or CCCC
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved baseMethod
-    .if     (!0)
-    and     r10, r10, #15               @ r10<- D (or stays CCCC)
-    .endif
-    cmp     r0, #0                      @ already resolved?
-    EXPORT_PC()                         @ must export for invoke
-    bne     .LOP_INVOKE_VIRTUAL_continue        @ yes, continue on
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    mov     r2, #METHOD_VIRTUAL         @ resolver method type
-    bl      dvmResolveMethod            @ r0<- call(clazz, ref, flags)
-    cmp     r0, #0                      @ got null?
-    bne     .LOP_INVOKE_VIRTUAL_continue        @ no, continue
-    b       common_exceptionThrown      @ yes, handle exception
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_VIRTUAL      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_SUPER: /* 0x6f */
-/* File: armv5te_taint/OP_INVOKE_SUPER.S */
-    /*
-     * Handle a "super" method call.
-     *
-     * for: invoke-super, invoke-super/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op vAA, {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    FETCH(r10, 2)                       @ r10<- GFED or CCCC
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    .if     (!0)
-    and     r10, r10, #15               @ r10<- D (or stays CCCC)
-    .endif
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResMethods]    @ r3<- pDvmDex->pResMethods
-    GET_VREG(r9, r10)                   @ r9<- "this" ptr
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved baseMethod
-    cmp     r9, #0                      @ null "this"?
-    ldr     r10, [rSELF, #offThread_method] @ r10<- current method
-    beq     common_errNullObject        @ null "this", throw exception
-    cmp     r0, #0                      @ already resolved?
-    ldr     r10, [r10, #offMethod_clazz]  @ r10<- method->clazz
-    EXPORT_PC()                         @ must export for invoke
-    bne     .LOP_INVOKE_SUPER_continue        @ resolved, continue on
-    b       .LOP_INVOKE_SUPER_resolve         @ do resolve now
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_SUPER      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_DIRECT: /* 0x70 */
-/* File: armv5te_taint/OP_INVOKE_DIRECT.S */
-    /*
-     * Handle a direct method call.
-     *
-     * (We could defer the "is 'this' pointer null" test to the common
-     * method invocation code, and use a flag to indicate that static
-     * calls don't count.  If we do this as part of copying the arguments
-     * out we could avoiding loading the first arg twice.)
-     *
-     * for: invoke-direct, invoke-direct/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResMethods]    @ r3<- pDvmDex->pResMethods
-    FETCH(r10, 2)                       @ r10<- GFED or CCCC
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved methodToCall
-    .if     (!0)
-    and     r10, r10, #15               @ r10<- D (or stays CCCC)
-    .endif
-    cmp     r0, #0                      @ already resolved?
-    EXPORT_PC()                         @ must export for invoke
-    GET_VREG(r9, r10)                   @ r9<- "this" ptr
-    beq     .LOP_INVOKE_DIRECT_resolve         @ not resolved, do it now
-.LOP_INVOKE_DIRECT_finish:
-    cmp     r9, #0                      @ null "this" ref?
-    bne     common_invokeMethodNoRange   @ r0=method, r9="this"
-    b       common_errNullObject        @ yes, throw exception
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_DIRECT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_STATIC: /* 0x71 */
-/* File: armv5te_taint/OP_INVOKE_STATIC.S */
-    /*
-     * Handle a static method call.
-     *
-     * for: invoke-static, invoke-static/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResMethods]    @ r3<- pDvmDex->pResMethods
-    mov     r9, #0                      @ null "this" in delay slot
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved methodToCall
-#if defined(WITH_JIT)
-    add     r10, r3, r1, lsl #2         @ r10<- &resolved_methodToCall
-#endif
-    cmp     r0, #0                      @ already resolved?
-    EXPORT_PC()                         @ must export for invoke
-    bne     common_invokeMethodNoRange @ yes, continue on
-    b       .LOP_INVOKE_STATIC_resolve
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_STATIC      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_INTERFACE: /* 0x72 */
-/* File: armv5te_taint/OP_INVOKE_INTERFACE.S */
-    /*
-     * Handle an interface method call.
-     *
-     * for: invoke-interface, invoke-interface/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    FETCH(r2, 2)                        @ r2<- FEDC or CCCC
-    FETCH(r1, 1)                        @ r1<- BBBB
-    .if     (!0)
-    and     r2, r2, #15                 @ r2<- C (or stays CCCC)
-    .endif
-    EXPORT_PC()                         @ must export for invoke
-    GET_VREG(r9, r2)                    @ r9<- first arg ("this")
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- methodClassDex
-    cmp     r9, #0                      @ null obj?
-    ldr     r2, [rSELF, #offThread_method]  @ r2<- method
-    beq     common_errNullObject        @ yes, fail
-    ldr     r0, [r9, #offObject_clazz]  @ r0<- thisPtr->clazz
-    bl      dvmFindInterfaceMethodInCache @ r0<- call(class, ref, method, dex)
-    cmp     r0, #0                      @ failed?
-    beq     common_exceptionThrown      @ yes, handle exception
-    b       common_invokeMethodNoRange @ (r0=method, r9="this")
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_INTERFACE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_73: /* 0x73 */
-/* File: armv5te_taint/OP_UNUSED_73.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_73      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_VIRTUAL_RANGE: /* 0x74 */
-/* File: armv5te_taint/OP_INVOKE_VIRTUAL_RANGE.S */
-/* File: armv5te_taint/OP_INVOKE_VIRTUAL.S */
-    /*
-     * Handle a virtual method call.
-     *
-     * for: invoke-virtual, invoke-virtual/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op vAA, {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResMethods]    @ r3<- pDvmDex->pResMethods
-    FETCH(r10, 2)                       @ r10<- GFED or CCCC
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved baseMethod
-    .if     (!1)
-    and     r10, r10, #15               @ r10<- D (or stays CCCC)
-    .endif
-    cmp     r0, #0                      @ already resolved?
-    EXPORT_PC()                         @ must export for invoke
-    bne     .LOP_INVOKE_VIRTUAL_RANGE_continue        @ yes, continue on
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    mov     r2, #METHOD_VIRTUAL         @ resolver method type
-    bl      dvmResolveMethod            @ r0<- call(clazz, ref, flags)
-    cmp     r0, #0                      @ got null?
-    bne     .LOP_INVOKE_VIRTUAL_RANGE_continue        @ no, continue
-    b       common_exceptionThrown      @ yes, handle exception
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_VIRTUAL_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_SUPER_RANGE: /* 0x75 */
-/* File: armv5te_taint/OP_INVOKE_SUPER_RANGE.S */
-/* File: armv5te_taint/OP_INVOKE_SUPER.S */
-    /*
-     * Handle a "super" method call.
-     *
-     * for: invoke-super, invoke-super/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op vAA, {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    FETCH(r10, 2)                       @ r10<- GFED or CCCC
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    .if     (!1)
-    and     r10, r10, #15               @ r10<- D (or stays CCCC)
-    .endif
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResMethods]    @ r3<- pDvmDex->pResMethods
-    GET_VREG(r9, r10)                   @ r9<- "this" ptr
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved baseMethod
-    cmp     r9, #0                      @ null "this"?
-    ldr     r10, [rSELF, #offThread_method] @ r10<- current method
-    beq     common_errNullObject        @ null "this", throw exception
-    cmp     r0, #0                      @ already resolved?
-    ldr     r10, [r10, #offMethod_clazz]  @ r10<- method->clazz
-    EXPORT_PC()                         @ must export for invoke
-    bne     .LOP_INVOKE_SUPER_RANGE_continue        @ resolved, continue on
-    b       .LOP_INVOKE_SUPER_RANGE_resolve         @ do resolve now
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_SUPER_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_DIRECT_RANGE: /* 0x76 */
-/* File: armv5te_taint/OP_INVOKE_DIRECT_RANGE.S */
-/* File: armv5te_taint/OP_INVOKE_DIRECT.S */
-    /*
-     * Handle a direct method call.
-     *
-     * (We could defer the "is 'this' pointer null" test to the common
-     * method invocation code, and use a flag to indicate that static
-     * calls don't count.  If we do this as part of copying the arguments
-     * out we could avoiding loading the first arg twice.)
-     *
-     * for: invoke-direct, invoke-direct/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResMethods]    @ r3<- pDvmDex->pResMethods
-    FETCH(r10, 2)                       @ r10<- GFED or CCCC
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved methodToCall
-    .if     (!1)
-    and     r10, r10, #15               @ r10<- D (or stays CCCC)
-    .endif
-    cmp     r0, #0                      @ already resolved?
-    EXPORT_PC()                         @ must export for invoke
-    GET_VREG(r9, r10)                   @ r9<- "this" ptr
-    beq     .LOP_INVOKE_DIRECT_RANGE_resolve         @ not resolved, do it now
-.LOP_INVOKE_DIRECT_RANGE_finish:
-    cmp     r9, #0                      @ null "this" ref?
-    bne     common_invokeMethodRange   @ r0=method, r9="this"
-    b       common_errNullObject        @ yes, throw exception
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_DIRECT_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_STATIC_RANGE: /* 0x77 */
-/* File: armv5te_taint/OP_INVOKE_STATIC_RANGE.S */
-/* File: armv5te_taint/OP_INVOKE_STATIC.S */
-    /*
-     * Handle a static method call.
-     *
-     * for: invoke-static, invoke-static/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- pDvmDex
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r3, [r3, #offDvmDex_pResMethods]    @ r3<- pDvmDex->pResMethods
-    mov     r9, #0                      @ null "this" in delay slot
-    ldr     r0, [r3, r1, lsl #2]        @ r0<- resolved methodToCall
-#if defined(WITH_JIT)
-    add     r10, r3, r1, lsl #2         @ r10<- &resolved_methodToCall
-#endif
-    cmp     r0, #0                      @ already resolved?
-    EXPORT_PC()                         @ must export for invoke
-    bne     common_invokeMethodRange @ yes, continue on
-    b       .LOP_INVOKE_STATIC_RANGE_resolve
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_STATIC_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_INTERFACE_RANGE: /* 0x78 */
-/* File: armv5te_taint/OP_INVOKE_INTERFACE_RANGE.S */
-/* File: armv5te_taint/OP_INVOKE_INTERFACE.S */
-    /*
-     * Handle an interface method call.
-     *
-     * for: invoke-interface, invoke-interface/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    FETCH(r2, 2)                        @ r2<- FEDC or CCCC
-    FETCH(r1, 1)                        @ r1<- BBBB
-    .if     (!1)
-    and     r2, r2, #15                 @ r2<- C (or stays CCCC)
-    .endif
-    EXPORT_PC()                         @ must export for invoke
-    GET_VREG(r9, r2)                    @ r9<- first arg ("this")
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- methodClassDex
-    cmp     r9, #0                      @ null obj?
-    ldr     r2, [rSELF, #offThread_method]  @ r2<- method
-    beq     common_errNullObject        @ yes, fail
-    ldr     r0, [r9, #offObject_clazz]  @ r0<- thisPtr->clazz
-    bl      dvmFindInterfaceMethodInCache @ r0<- call(class, ref, method, dex)
-    cmp     r0, #0                      @ failed?
-    beq     common_exceptionThrown      @ yes, handle exception
-    b       common_invokeMethodRange @ (r0=method, r9="this")
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_INTERFACE_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_79: /* 0x79 */
-/* File: armv5te_taint/OP_UNUSED_79.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_79      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_7A: /* 0x7a */
-/* File: armv5te_taint/OP_UNUSED_7A.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_7A      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_NEG_INT: /* 0x7b */
-/* File: armv6t2_taint/OP_NEG_INT.S */
-/* File: armv6t2_taint/unop.S */
-    /*
-     * Generic 32-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0".
-     * This could be an ARM instruction or a function call.
-     *
-     * for: neg-int, not-int, neg-float, int-to-float, float-to-int,
-     *      int-to-byte, int-to-char, int-to-short
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r3)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r2, r3, r1)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r1)
-// end WITH_TAINT_TRACKING
-                               @ optional op; may set condition codes
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    rsb     r0, r0, #0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 8-9 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NEG_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_NOT_INT: /* 0x7c */
-/* File: armv6t2_taint/OP_NOT_INT.S */
-/* File: armv6t2_taint/unop.S */
-    /*
-     * Generic 32-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0".
-     * This could be an ARM instruction or a function call.
-     *
-     * for: neg-int, not-int, neg-float, int-to-float, float-to-int,
-     *      int-to-byte, int-to-char, int-to-short
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r3)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r2, r3, r1)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r1)
-// end WITH_TAINT_TRACKING
-                               @ optional op; may set condition codes
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    mvn     r0, r0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 8-9 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NOT_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_NEG_LONG: /* 0x7d */
-/* File: armv6t2_taint/OP_NEG_LONG.S */
-/* File: armv6t2_taint/unopWide.S */
-    /*
-     * Generic 64-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0/r1".
-     * This could be an ARM instruction or a function call.
-     *
-     * For: neg-long, not-long, neg-double, long-to-double, double-to-long
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vAA
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    ldr     r10, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    rsbs    r0, r0, #0                           @ optional op; may set condition codes
-    rsc     r1, r1, #0                              @ r0/r1<- op, r2-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b       .LOP_NEG_LONG_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NEG_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_NOT_LONG: /* 0x7e */
-/* File: armv6t2_taint/OP_NOT_LONG.S */
-/* File: armv6t2_taint/unopWide.S */
-    /*
-     * Generic 64-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0/r1".
-     * This could be an ARM instruction or a function call.
-     *
-     * For: neg-long, not-long, neg-double, long-to-double, double-to-long
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vAA
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    ldr     r10, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    mvn     r0, r0                           @ optional op; may set condition codes
-    mvn     r1, r1                              @ r0/r1<- op, r2-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b       .LOP_NOT_LONG_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NOT_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_NEG_FLOAT: /* 0x7f */
-/* File: armv6t2_taint/OP_NEG_FLOAT.S */
-/* File: armv6t2_taint/unop.S */
-    /*
-     * Generic 32-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0".
-     * This could be an ARM instruction or a function call.
-     *
-     * for: neg-int, not-int, neg-float, int-to-float, float-to-int,
-     *      int-to-byte, int-to-char, int-to-short
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r3)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r2, r3, r1)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r1)
-// end WITH_TAINT_TRACKING
-                               @ optional op; may set condition codes
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    add     r0, r0, #0x80000000                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 8-9 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NEG_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_NEG_DOUBLE: /* 0x80 */
-/* File: armv6t2_taint/OP_NEG_DOUBLE.S */
-/* File: armv6t2_taint/unopWide.S */
-    /*
-     * Generic 64-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0/r1".
-     * This could be an ARM instruction or a function call.
-     *
-     * For: neg-long, not-long, neg-double, long-to-double, double-to-long
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vAA
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    ldr     r10, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    add     r1, r1, #0x80000000                              @ r0/r1<- op, r2-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b       .LOP_NEG_DOUBLE_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_NEG_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INT_TO_LONG: /* 0x81 */
-/* File: armv6t2_taint/OP_INT_TO_LONG.S */
-/* File: armv6t2_taint/unopWider.S */
-    /*
-     * Generic 32bit-to-64bit unary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = op r0", where
-     * "result" is a 64-bit quantity in r0/r1.
-     *
-     * For: int-to-long, int-to-double, float-to-long, float-to-double
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r3)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r3, r2)
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-// end WITH_TAINT_TRACKING
-                               @ optional op; may set condition codes
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    mov     r1, r0, asr #31                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b      .LOP_INT_TO_LONG_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INT_TO_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INT_TO_FLOAT: /* 0x82 */
-/* File: arm-vfp_taint/OP_INT_TO_FLOAT.S */
-/* File: arm-vfp_taint/funop.S */
-    /*
-     * Generic 32-bit unary floating-point operation.  Provide an "instr"
-     * line that specifies an instruction that performs "s1 = op s0".
-     *
-     * for: int-to-float, float-to-int
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    flds    s0, [r3]                    @ s0<- vB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    and     r9, r9, #15                 @ r9<- A
-    fsitos  s1, s0                              @ s1<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    fsts    s1, [r9]                    @ vA<- s1
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INT_TO_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INT_TO_DOUBLE: /* 0x83 */
-/* File: arm-vfp_taint/OP_INT_TO_DOUBLE.S */
-/* File: arm-vfp_taint/funopWider.S */
-    /*
-     * Generic 32bit-to-64bit floating point unary operation.  Provide an
-     * "instr" line that specifies an instruction that performs "d0 = op s0".
-     *
-     * For: int-to-double, float-to-double
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    flds    s0, [r3]                    @ s0<- vB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    and     r9, r9, #15                 @ r9<- A
-    fsitod  d0, s0                              @ d0<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-// begin WITH_TAINT_TRACKING
-//    fstd    d0, [r9]                    @ vA<- d0
-    fsts    s0, [r9]
-    fsts    s1, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INT_TO_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_LONG_TO_INT: /* 0x84 */
-/* File: armv5te_taint/OP_LONG_TO_INT.S */
-/* we ignore the high word, making this equivalent to a 32-bit reg move */
-/* File: armv5te_taint/OP_MOVE.S */
-    /* for move, move-object, long-to-int */
-    /* op vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B from 15:12
-    mov     r0, rINST, lsr #8           @ r0<- A from 11:8
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    GET_VREG(r2, r1)                    @ r2<- fp[B]
-    and     r0, r0, #15
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r1, r3)
-    SET_VREG_TAINT(r1, r0, r3)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ ip<- opcode from rINST
-    SET_VREG(r2, r0)                    @ fp[A]<- r2
-    GOTO_OPCODE(ip)                     @ execute next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_LONG_TO_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_LONG_TO_FLOAT: /* 0x85 */
-/* File: armv6t2_taint/OP_LONG_TO_FLOAT.S */
-/* File: armv6t2_taint/unopNarrower.S */
-    /*
-     * Generic 64bit-to-32bit unary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = op r0/r1", where
-     * "result" is a 32-bit quantity in r0.
-     *
-     * For: long-to-float, double-to-int, double-to-float
-     *
-     * (This would work for long-to-int, but that instruction is actually
-     * an exact match for OP_MOVE.)
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[B]
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vB/vB+1
-    ldr     r0, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r1, [r3, #8]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    bl      __aeabi_l2f                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    SET_VREG(r0, r9)                    @ vA<- r0
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r10, r9, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 9-10 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_LONG_TO_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_LONG_TO_DOUBLE: /* 0x86 */
-/* File: armv6t2_taint/OP_LONG_TO_DOUBLE.S */
-/* File: armv6t2_taint/unopWide.S */
-    /*
-     * Generic 64-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0/r1".
-     * This could be an ARM instruction or a function call.
-     *
-     * For: neg-long, not-long, neg-double, long-to-double, double-to-long
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vAA
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    ldr     r10, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    bl      __aeabi_l2d                              @ r0/r1<- op, r2-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b       .LOP_LONG_TO_DOUBLE_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_LONG_TO_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_FLOAT_TO_INT: /* 0x87 */
-/* File: arm-vfp_taint/OP_FLOAT_TO_INT.S */
-/* File: arm-vfp_taint/funop.S */
-    /*
-     * Generic 32-bit unary floating-point operation.  Provide an "instr"
-     * line that specifies an instruction that performs "s1 = op s0".
-     *
-     * for: int-to-float, float-to-int
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    flds    s0, [r3]                    @ s0<- vB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    and     r9, r9, #15                 @ r9<- A
-    ftosizs s1, s0                              @ s1<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    fsts    s1, [r9]                    @ vA<- s1
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_FLOAT_TO_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_FLOAT_TO_LONG: /* 0x88 */
-/* File: armv6t2_taint/OP_FLOAT_TO_LONG.S */
-@include "armv6t2_taint/unopWider.S" {"instr":"bl      __aeabi_f2lz"}
-/* File: armv6t2_taint/unopWider.S */
-    /*
-     * Generic 32bit-to-64bit unary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = op r0", where
-     * "result" is a 64-bit quantity in r0/r1.
-     *
-     * For: int-to-long, int-to-double, float-to-long, float-to-double
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r3)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r3, r2)
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-// end WITH_TAINT_TRACKING
-                               @ optional op; may set condition codes
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    bl      f2l_doconv                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b      .LOP_FLOAT_TO_LONG_finish
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_FLOAT_TO_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_FLOAT_TO_DOUBLE: /* 0x89 */
-/* File: arm-vfp_taint/OP_FLOAT_TO_DOUBLE.S */
-/* File: arm-vfp_taint/funopWider.S */
-    /*
-     * Generic 32bit-to-64bit floating point unary operation.  Provide an
-     * "instr" line that specifies an instruction that performs "d0 = op s0".
-     *
-     * For: int-to-double, float-to-double
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    flds    s0, [r3]                    @ s0<- vB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    and     r9, r9, #15                 @ r9<- A
-    fcvtds  d0, s0                              @ d0<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-// begin WITH_TAINT_TRACKING
-//    fstd    d0, [r9]                    @ vA<- d0
-    fsts    s0, [r9]
-    fsts    s1, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_FLOAT_TO_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DOUBLE_TO_INT: /* 0x8a */
-/* File: arm-vfp_taint/OP_DOUBLE_TO_INT.S */
-/* File: arm-vfp_taint/funopNarrower.S */
-    /*
-     * Generic 64bit-to-32bit unary floating point operation.  Provide an
-     * "instr" line that specifies an instruction that performs "s0 = op d0".
-     *
-     * For: double-to-int, double-to-float
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-// begin WITH_TAINT_TRACKING
-//    fldd    d0, [r3]                    @ d0<- vB
-    flds    s0, [r3]
-    flds    s1, [r3, #8]
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    and     r9, r9, #15                 @ r9<- A
-    ftosizd  s0, d0                              @ s0<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    fsts    s0, [r9]                    @ vA<- s0
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DOUBLE_TO_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DOUBLE_TO_LONG: /* 0x8b */
-/* File: armv6t2_taint/OP_DOUBLE_TO_LONG.S */
-@include "armv6t2_taint/unopWide.S" {"instr":"bl      __aeabi_d2lz"}
-/* File: armv6t2_taint/unopWide.S */
-    /*
-     * Generic 64-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0/r1".
-     * This could be an ARM instruction or a function call.
-     *
-     * For: neg-long, not-long, neg-double, long-to-double, double-to-long
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vAA
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    ldr     r10, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    bl      d2l_doconv                              @ r0/r1<- op, r2-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    b       .LOP_DOUBLE_TO_LONG_finish
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DOUBLE_TO_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DOUBLE_TO_FLOAT: /* 0x8c */
-/* File: arm-vfp_taint/OP_DOUBLE_TO_FLOAT.S */
-/* File: arm-vfp_taint/funopNarrower.S */
-    /*
-     * Generic 64bit-to-32bit unary floating point operation.  Provide an
-     * "instr" line that specifies an instruction that performs "s0 = op d0".
-     *
-     * For: double-to-int, double-to-float
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-// begin WITH_TAINT_TRACKING
-//    fldd    d0, [r3]                    @ d0<- vB
-    flds    s0, [r3]
-    flds    s1, [r3, #8]
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    and     r9, r9, #15                 @ r9<- A
-    fcvtsd  s0, d0                              @ s0<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    fsts    s0, [r9]                    @ vA<- s0
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DOUBLE_TO_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INT_TO_BYTE: /* 0x8d */
-/* File: armv6t2_taint/OP_INT_TO_BYTE.S */
-/* File: armv6t2_taint/unop.S */
-    /*
-     * Generic 32-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0".
-     * This could be an ARM instruction or a function call.
-     *
-     * for: neg-int, not-int, neg-float, int-to-float, float-to-int,
-     *      int-to-byte, int-to-char, int-to-short
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r3)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r2, r3, r1)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r1)
-// end WITH_TAINT_TRACKING
-                               @ optional op; may set condition codes
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    sxtb    r0, r0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 8-9 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INT_TO_BYTE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INT_TO_CHAR: /* 0x8e */
-/* File: armv6t2_taint/OP_INT_TO_CHAR.S */
-/* File: armv6t2_taint/unop.S */
-    /*
-     * Generic 32-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0".
-     * This could be an ARM instruction or a function call.
-     *
-     * for: neg-int, not-int, neg-float, int-to-float, float-to-int,
-     *      int-to-byte, int-to-char, int-to-short
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r3)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r2, r3, r1)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r1)
-// end WITH_TAINT_TRACKING
-                               @ optional op; may set condition codes
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    uxth    r0, r0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 8-9 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INT_TO_CHAR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INT_TO_SHORT: /* 0x8f */
-/* File: armv6t2_taint/OP_INT_TO_SHORT.S */
-/* File: armv6t2_taint/unop.S */
-    /*
-     * Generic 32-bit unary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = op r0".
-     * This could be an ARM instruction or a function call.
-     *
-     * for: neg-int, not-int, neg-float, int-to-float, float-to-int,
-     *      int-to-byte, int-to-char, int-to-short
-     */
-    /* unop vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r3)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r2, r3, r1)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r1)
-// end WITH_TAINT_TRACKING
-                               @ optional op; may set condition codes
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    sxth    r0, r0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 8-9 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INT_TO_SHORT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_INT: /* 0x90 */
-/* File: armv5te_taint/OP_ADD_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_ADD_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    add     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SUB_INT: /* 0x91 */
-/* File: armv5te_taint/OP_SUB_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SUB_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    sub     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SUB_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_INT: /* 0x92 */
-/* File: armv5te_taint/OP_MUL_INT.S */
-/* must be "mul r0, r1, r0" -- "r0, r0, r1" is illegal */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_MUL_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    mul     r0, r1, r0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_INT: /* 0x93 */
-/* File: armv5te_taint/OP_DIV_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 1
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_DIV_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    bl     __aeabi_idiv                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_INT: /* 0x94 */
-/* File: armv5te_taint/OP_REM_INT.S */
-/* idivmod returns quotient in r0 and remainder in r1 */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 1
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_REM_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    bl      __aeabi_idivmod                              @ r1<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r1, r9)               @ vAA<- r1
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AND_INT: /* 0x95 */
-/* File: armv5te_taint/OP_AND_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_AND_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    and     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AND_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_OR_INT: /* 0x96 */
-/* File: armv5te_taint/OP_OR_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_OR_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    orr     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_OR_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_XOR_INT: /* 0x97 */
-/* File: armv5te_taint/OP_XOR_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_XOR_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    eor     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_XOR_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHL_INT: /* 0x98 */
-/* File: armv5te_taint/OP_SHL_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SHL_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, asl r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHL_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHR_INT: /* 0x99 */
-/* File: armv5te_taint/OP_SHR_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SHR_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, asr r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHR_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_USHR_INT: /* 0x9a */
-/* File: armv5te_taint/OP_USHR_INT.S */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_USHR_INT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, lsr r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_USHR_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_LONG: /* 0x9b */
-/* File: armv5te_taint/OP_ADD_LONG.S */
-/* File: armv5te_taint/binopWide.S */
-    /*
-     * Generic 64-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * for: add-long, sub-long, div-long, rem-long, and-long, or-long,
-     *      xor-long, add-double, sub-double, mul-double, div-double,
-     *      rem-double
-     *
-     * IMPORTANT: you may specify "chkzero" or "preinstr" but not both.
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_ADD_LONG_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    adds    r0, r0, r2                           @ optional op; may set condition codes
-    adc     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 14-17 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SUB_LONG: /* 0x9c */
-/* File: armv5te_taint/OP_SUB_LONG.S */
-/* File: armv5te_taint/binopWide.S */
-    /*
-     * Generic 64-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * for: add-long, sub-long, div-long, rem-long, and-long, or-long,
-     *      xor-long, add-double, sub-double, mul-double, div-double,
-     *      rem-double
-     *
-     * IMPORTANT: you may specify "chkzero" or "preinstr" but not both.
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SUB_LONG_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    subs    r0, r0, r2                           @ optional op; may set condition codes
-    sbc     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 14-17 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SUB_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_LONG: /* 0x9d */
-/* File: armv5te_taint/OP_MUL_LONG.S */
-    /*
-     * Signed 64-bit integer multiply.
-     *
-     * Consider WXxYZ (r1r0 x r3r2) with a long multiply:
-     *        WX
-     *      x YZ
-     *  --------
-     *     ZW ZX
-     *  YW YX
-     *
-     * The low word of the result holds ZX, the high word holds
-     * (ZW+YX) + (the high overflow from ZX).  YW doesn't matter because
-     * it doesn't fit in the low 64 bits.
-     *
-     * Unlike most ARM math operations, multiply instructions have
-     * restrictions on using the same register more than once (Rd and Rm
-     * cannot be the same).
-     */
-    /* mul-long vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl		mul_long_taint_prop
-// end WITH_TAINT_TRACKING
-    mul     ip, r2, r1                  @  ip<- ZxW
-    umull   r9, r10, r2, r0             @  r9/r10 <- ZxX
-    mla     r2, r0, r3, ip              @  r2<- YxX + (ZxW)
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    add     r10, r2, r10                @  r10<- r10 + low(ZxW + (YxX))
-// begin WITH_TAINT_TRACKING
-    add     r0, rFP, r0, lsl #3         @ r0<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    b       .LOP_MUL_LONG_finish
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_LONG: /* 0x9e */
-/* File: armv5te_taint/OP_DIV_LONG.S */
-/* File: armv5te_taint/binopWide.S */
-    /*
-     * Generic 64-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * for: add-long, sub-long, div-long, rem-long, and-long, or-long,
-     *      xor-long, add-double, sub-double, mul-double, div-double,
-     *      rem-double
-     *
-     * IMPORTANT: you may specify "chkzero" or "preinstr" but not both.
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_DIV_LONG_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 1
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      __aeabi_ldivmod                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 14-17 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_LONG: /* 0x9f */
-/* File: armv5te_taint/OP_REM_LONG.S */
-/* ldivmod returns quotient in r0/r1 and remainder in r2/r3 */
-/* File: armv5te_taint/binopWide.S */
-    /*
-     * Generic 64-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * for: add-long, sub-long, div-long, rem-long, and-long, or-long,
-     *      xor-long, add-double, sub-double, mul-double, div-double,
-     *      rem-double
-     *
-     * IMPORTANT: you may specify "chkzero" or "preinstr" but not both.
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_REM_LONG_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 1
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      __aeabi_ldivmod                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r2,r3}     @ vAA/vAA+1<- r2/r3
-    str     r2, [r9, #0]
-    str     r10, [r9, #4]
-    str     r3, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 14-17 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AND_LONG: /* 0xa0 */
-/* File: armv5te_taint/OP_AND_LONG.S */
-/* File: armv5te_taint/binopWide.S */
-    /*
-     * Generic 64-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * for: add-long, sub-long, div-long, rem-long, and-long, or-long,
-     *      xor-long, add-double, sub-double, mul-double, div-double,
-     *      rem-double
-     *
-     * IMPORTANT: you may specify "chkzero" or "preinstr" but not both.
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_AND_LONG_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    and     r0, r0, r2                           @ optional op; may set condition codes
-    and     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 14-17 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AND_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_OR_LONG: /* 0xa1 */
-/* File: armv5te_taint/OP_OR_LONG.S */
-/* File: armv5te_taint/binopWide.S */
-    /*
-     * Generic 64-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * for: add-long, sub-long, div-long, rem-long, and-long, or-long,
-     *      xor-long, add-double, sub-double, mul-double, div-double,
-     *      rem-double
-     *
-     * IMPORTANT: you may specify "chkzero" or "preinstr" but not both.
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_OR_LONG_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    orr     r0, r0, r2                           @ optional op; may set condition codes
-    orr     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 14-17 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_OR_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_XOR_LONG: /* 0xa2 */
-/* File: armv5te_taint/OP_XOR_LONG.S */
-/* File: armv5te_taint/binopWide.S */
-    /*
-     * Generic 64-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * for: add-long, sub-long, div-long, rem-long, and-long, or-long,
-     *      xor-long, add-double, sub-double, mul-double, div-double,
-     *      rem-double
-     *
-     * IMPORTANT: you may specify "chkzero" or "preinstr" but not both.
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_XOR_LONG_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    eor     r0, r0, r2                           @ optional op; may set condition codes
-    eor     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 14-17 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_XOR_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHL_LONG: /* 0xa3 */
-/* File: armv5te_taint/OP_SHL_LONG.S */
-    /*
-     * Long integer shift.  This is different from the generic 32/64-bit
-     * binary operations because vAA/vBB are 64-bit but vCC (the shift
-     * distance) is 32-bit.  Also, Dalvik requires us to mask off the low
-     * 6 bits of the shift distance.
-     */
-    /* shl-long vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r3, r0, #255                @ r3<- BB
-    mov     r0, r0, lsr #8              @ r0<- CC
-// begin WITH_TAINT_TRACKING
-    bl      shl_long_taint_prop
-// end WITH_TAINT_TRACKING
-
-    mov     r1, r1, asl r2              @  r1<- r1 << r2
-    rsb     r3, r2, #32                 @  r3<- 32 - r2
-    orr     r1, r1, r0, lsr r3          @  r1<- r1 | (r0 << (32-r2))
-    subs    ip, r2, #32                 @  ip<- r2 - 32
-    movpl   r1, r0, asl ip              @  if r2 >= 32, r1<- r0 << (r2-32)
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    b       .LOP_SHL_LONG_finish
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHL_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHR_LONG: /* 0xa4 */
-/* File: armv5te_taint/OP_SHR_LONG.S */
-    /*
-     * Long integer shift.  This is different from the generic 32/64-bit
-     * binary operations because vAA/vBB are 64-bit but vCC (the shift
-     * distance) is 32-bit.  Also, Dalvik requires us to mask off the low
-     * 6 bits of the shift distance.
-     */
-    /* shr-long vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r3, r0, #255                @ r3<- BB
-    mov     r0, r0, lsr #8              @ r0<- CC
-// begin WITH_TAINT_TRACKING
-    bl      shr_long_taint_prop
-// end WITH_TAINT_TRACKING
-
-    mov     r0, r0, lsr r2              @  r0<- r2 >> r2
-    rsb     r3, r2, #32                 @  r3<- 32 - r2
-    orr     r0, r0, r1, asl r3          @  r0<- r0 | (r1 << (32-r2))
-    subs    ip, r2, #32                 @  ip<- r2 - 32
-    movpl   r0, r1, asr ip              @  if r2 >= 32, r0<-r1 >> (r2-32)
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    b       .LOP_SHR_LONG_finish
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHR_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_USHR_LONG: /* 0xa5 */
-/* File: armv5te_taint/OP_USHR_LONG.S */
-    /*
-     * Long integer shift.  This is different from the generic 32/64-bit
-     * binary operations because vAA/vBB are 64-bit but vCC (the shift
-     * distance) is 32-bit.  Also, Dalvik requires us to mask off the low
-     * 6 bits of the shift distance.
-     */
-    /* ushr-long vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r3, r0, #255                @ r3<- BB
-    mov     r0, r0, lsr #8              @ r0<- CC
-// begin WITH_TAINT_TRACKING
-    bl      ushr_long_taint_prop
-// end WITH_TAINT_TRACKING
-
-    mov     r0, r0, lsr r2              @  r0<- r2 >> r2
-    rsb     r3, r2, #32                 @  r3<- 32 - r2
-    orr     r0, r0, r1, asl r3          @  r0<- r0 | (r1 << (32-r2))
-    subs    ip, r2, #32                 @  ip<- r2 - 32
-    movpl   r0, r1, lsr ip              @  if r2 >= 32, r0<-r1 >>> (r2-32)
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    b       .LOP_USHR_LONG_finish
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_USHR_LONG      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_FLOAT: /* 0xa6 */
-/* File: arm-vfp_taint/OP_ADD_FLOAT.S */
-/* File: arm-vfp_taint/fbinop.S */
-    /*
-     * Generic 32-bit floating-point operation.  Provide an "instr" line that
-     * specifies an instruction that performs "s2 = s0 op s1".  Because we
-     * use the "softfp" ABI, this must be an instruction, not a function call.
-     *
-     * For: add-float, sub-float, mul-float, div-float
-     */
-    /* floatop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-    flds    s1, [r3]                    @ s1<- vCC
-    flds    s0, [r2]                    @ s0<- vBB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-    ldr     r1, [r2, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b     .LOP_ADD_FLOAT_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SUB_FLOAT: /* 0xa7 */
-/* File: arm-vfp_taint/OP_SUB_FLOAT.S */
-/* File: arm-vfp_taint/fbinop.S */
-    /*
-     * Generic 32-bit floating-point operation.  Provide an "instr" line that
-     * specifies an instruction that performs "s2 = s0 op s1".  Because we
-     * use the "softfp" ABI, this must be an instruction, not a function call.
-     *
-     * For: add-float, sub-float, mul-float, div-float
-     */
-    /* floatop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-    flds    s1, [r3]                    @ s1<- vCC
-    flds    s0, [r2]                    @ s0<- vBB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-    ldr     r1, [r2, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b     .LOP_SUB_FLOAT_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SUB_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_FLOAT: /* 0xa8 */
-/* File: arm-vfp_taint/OP_MUL_FLOAT.S */
-/* File: arm-vfp_taint/fbinop.S */
-    /*
-     * Generic 32-bit floating-point operation.  Provide an "instr" line that
-     * specifies an instruction that performs "s2 = s0 op s1".  Because we
-     * use the "softfp" ABI, this must be an instruction, not a function call.
-     *
-     * For: add-float, sub-float, mul-float, div-float
-     */
-    /* floatop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-    flds    s1, [r3]                    @ s1<- vCC
-    flds    s0, [r2]                    @ s0<- vBB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-    ldr     r1, [r2, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b     .LOP_MUL_FLOAT_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_FLOAT: /* 0xa9 */
-/* File: arm-vfp_taint/OP_DIV_FLOAT.S */
-/* File: arm-vfp_taint/fbinop.S */
-    /*
-     * Generic 32-bit floating-point operation.  Provide an "instr" line that
-     * specifies an instruction that performs "s2 = s0 op s1".  Because we
-     * use the "softfp" ABI, this must be an instruction, not a function call.
-     *
-     * For: add-float, sub-float, mul-float, div-float
-     */
-    /* floatop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-    flds    s1, [r3]                    @ s1<- vCC
-    flds    s0, [r2]                    @ s0<- vBB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-    ldr     r1, [r2, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b     .LOP_DIV_FLOAT_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_FLOAT: /* 0xaa */
-/* File: armv5te_taint/OP_REM_FLOAT.S */
-/* EABI doesn't define a float remainder function, but libm does */
-/* File: armv5te_taint/binop.S */
-    /*
-     * Generic 32-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.  Note that we
-     * *don't* check for (INT_MIN / -1) here, because the ARM math lib
-     * handles it correctly.
-     *
-     * For: add-int, sub-int, mul-int, div-int, rem-int, and-int, or-int,
-     *      xor-int, shl-int, shr-int, ushr-int, add-float, sub-float,
-     *      mul-float, div-float, rem-float
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    GET_VREG(r1, r3)                    @ r1<- vCC
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_REM_FLOAT_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-                               @ optional op; may set condition codes
-    bl      fmodf                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 11-14 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_FLOAT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_DOUBLE: /* 0xab */
-/* File: arm-vfp_taint/OP_ADD_DOUBLE.S */
-/* File: arm-vfp_taint/fbinopWide.S */
-    /*
-     * Generic 64-bit double-precision floating point binary operation.
-     * Provide an "instr" line that specifies an instruction that performs
-     * "d2 = d0 op d1".
-     *
-     * for: add-double, sub-double, mul-double, div-double
-     */
-    /* doubleop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-// begin WITH_TAINT_TRACKING
-//    fldd    d1, [r3]                    @ d1<- vCC
-//    fldd    d0, [r2]                    @ d0<- vBB
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-    flds    s0, [r2]
-    flds    s1, [r2, #8]
-    ldr     r0, [r3, #4]
-    ldr     r1, [r2, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b     .LOP_ADD_DOUBLE_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SUB_DOUBLE: /* 0xac */
-/* File: arm-vfp_taint/OP_SUB_DOUBLE.S */
-/* File: arm-vfp_taint/fbinopWide.S */
-    /*
-     * Generic 64-bit double-precision floating point binary operation.
-     * Provide an "instr" line that specifies an instruction that performs
-     * "d2 = d0 op d1".
-     *
-     * for: add-double, sub-double, mul-double, div-double
-     */
-    /* doubleop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-// begin WITH_TAINT_TRACKING
-//    fldd    d1, [r3]                    @ d1<- vCC
-//    fldd    d0, [r2]                    @ d0<- vBB
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-    flds    s0, [r2]
-    flds    s1, [r2, #8]
-    ldr     r0, [r3, #4]
-    ldr     r1, [r2, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b     .LOP_SUB_DOUBLE_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SUB_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_DOUBLE: /* 0xad */
-/* File: arm-vfp_taint/OP_MUL_DOUBLE.S */
-/* File: arm-vfp_taint/fbinopWide.S */
-    /*
-     * Generic 64-bit double-precision floating point binary operation.
-     * Provide an "instr" line that specifies an instruction that performs
-     * "d2 = d0 op d1".
-     *
-     * for: add-double, sub-double, mul-double, div-double
-     */
-    /* doubleop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-// begin WITH_TAINT_TRACKING
-//    fldd    d1, [r3]                    @ d1<- vCC
-//    fldd    d0, [r2]                    @ d0<- vBB
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-    flds    s0, [r2]
-    flds    s1, [r2, #8]
-    ldr     r0, [r3, #4]
-    ldr     r1, [r2, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b     .LOP_MUL_DOUBLE_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_DOUBLE: /* 0xae */
-/* File: arm-vfp_taint/OP_DIV_DOUBLE.S */
-/* File: arm-vfp_taint/fbinopWide.S */
-    /*
-     * Generic 64-bit double-precision floating point binary operation.
-     * Provide an "instr" line that specifies an instruction that performs
-     * "d2 = d0 op d1".
-     *
-     * for: add-double, sub-double, mul-double, div-double
-     */
-    /* doubleop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    mov     r3, r0, lsr #8              @ r3<- CC
-    and     r2, r0, #255                @ r2<- BB
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vCC
-    VREG_INDEX_TO_ADDR(r2, r2)          @ r2<- &vBB
-// begin WITH_TAINT_TRACKING
-//    fldd    d1, [r3]                    @ d1<- vCC
-//    fldd    d0, [r2]                    @ d0<- vBB
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-    flds    s0, [r2]
-    flds    s1, [r2, #8]
-    ldr     r0, [r3, #4]
-    ldr     r1, [r2, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b     .LOP_DIV_DOUBLE_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_DOUBLE: /* 0xaf */
-/* File: armv5te_taint/OP_REM_DOUBLE.S */
-/* EABI doesn't define a double remainder function, but libm does */
-/* File: armv5te_taint/binopWide.S */
-    /*
-     * Generic 64-bit binary operation.  Provide an "instr" line that
-     * specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * for: add-long, sub-long, div-long, rem-long, and-long, or-long,
-     *      xor-long, add-double, sub-double, mul-double, div-double,
-     *      rem-double
-     *
-     * IMPORTANT: you may specify "chkzero" or "preinstr" but not both.
-     */
-    /* binop vAA, vBB, vCC */
-    FETCH(r0, 1)                        @ r0<- CCBB
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r0, #255                @ r2<- BB
-    mov     r3, r0, lsr #8              @ r3<- CC
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_REM_DOUBLE_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      fmod                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 14-17 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_DOUBLE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_INT_2ADDR: /* 0xb0 */
-/* File: armv6t2_taint/OP_ADD_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_ADD_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    add     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SUB_INT_2ADDR: /* 0xb1 */
-/* File: armv6t2_taint/OP_SUB_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SUB_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    sub     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SUB_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_INT_2ADDR: /* 0xb2 */
-/* File: armv6t2_taint/OP_MUL_INT_2ADDR.S */
-/* must be "mul r0, r1, r0" -- "r0, r0, r1" is illegal */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_MUL_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    mul     r0, r1, r0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_INT_2ADDR: /* 0xb3 */
-/* File: armv6t2_taint/OP_DIV_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 1
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_DIV_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl     __aeabi_idiv                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_INT_2ADDR: /* 0xb4 */
-/* File: armv6t2_taint/OP_REM_INT_2ADDR.S */
-/* idivmod returns quotient in r0 and remainder in r1 */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 1
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_REM_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      __aeabi_idivmod                              @ r1<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r1, r9)               @ vAA<- r1
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AND_INT_2ADDR: /* 0xb5 */
-/* File: armv6t2_taint/OP_AND_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_AND_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    and     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AND_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_OR_INT_2ADDR: /* 0xb6 */
-/* File: armv6t2_taint/OP_OR_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_OR_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    orr     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_OR_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_XOR_INT_2ADDR: /* 0xb7 */
-/* File: armv6t2_taint/OP_XOR_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_XOR_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    eor     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_XOR_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHL_INT_2ADDR: /* 0xb8 */
-/* File: armv6t2_taint/OP_SHL_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SHL_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, asl r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHL_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHR_INT_2ADDR: /* 0xb9 */
-/* File: armv6t2_taint/OP_SHR_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SHR_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, asr r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHR_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_USHR_INT_2ADDR: /* 0xba */
-/* File: armv6t2_taint/OP_USHR_INT_2ADDR.S */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_USHR_INT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, lsr r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_USHR_INT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_LONG_2ADDR: /* 0xbb */
-/* File: armv6t2_taint/OP_ADD_LONG_2ADDR.S */
-/* File: armv6t2_taint/binopWide2addr.S */
-    /*
-     * Generic 64-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-long/2addr, sub-long/2addr, div-long/2addr, rem-long/2addr,
-     *      and-long/2addr, or-long/2addr, xor-long/2addr, add-double/2addr,
-     *      sub-double/2addr, mul-double/2addr, div-double/2addr,
-     *      rem-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    bl     .LOP_ADD_LONG_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-    adds    r0, r0, r2                           @ optional op; may set condition codes
-    adc     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 12-15 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SUB_LONG_2ADDR: /* 0xbc */
-/* File: armv6t2_taint/OP_SUB_LONG_2ADDR.S */
-/* File: armv6t2_taint/binopWide2addr.S */
-    /*
-     * Generic 64-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-long/2addr, sub-long/2addr, div-long/2addr, rem-long/2addr,
-     *      and-long/2addr, or-long/2addr, xor-long/2addr, add-double/2addr,
-     *      sub-double/2addr, mul-double/2addr, div-double/2addr,
-     *      rem-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    bl     .LOP_SUB_LONG_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-    subs    r0, r0, r2                           @ optional op; may set condition codes
-    sbc     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 12-15 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SUB_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_LONG_2ADDR: /* 0xbd */
-/* File: armv6t2_taint/OP_MUL_LONG_2ADDR.S */
-    /*
-     * Signed 64-bit integer multiply, "/2addr" version.
-     *
-     * See OP_MUL_LONG for an explanation.
-     *
-     * We get a little tight on registers, so to avoid looking up &fp[A]
-     * again we stuff it into rINST.
-     */
-    /* mul-long/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-// begin WITH_TAINT_TRACKING
-    bl      mul_long_2addr_taint_prop
-// end WITH_TAINT_TRACKING
-    umull   r9, r10, r2, r0             @  r9/r10 <- ZxX
-    mla     r2, r0, r3, ip              @  r2<- YxX + (ZxW)
-    mov     r0, rINST                   @ r0<- &fp[A] (free up rINST)
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    add     r10, r2, r10                @  r10<- r10 + low(ZxW + (YxX))
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r0, {r9-r10}                @ vAA/vAA+1<- r9/r10
-    str     r9, [r0, #0]
-    str     r10, [r0, #8]
-    str     r10, [r0, #12]
-    ldmfd   sp!, {r10}
-    str     r10, [r0, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_LONG_2ADDR: /* 0xbe */
-/* File: armv6t2_taint/OP_DIV_LONG_2ADDR.S */
-/* File: armv6t2_taint/binopWide2addr.S */
-    /*
-     * Generic 64-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-long/2addr, sub-long/2addr, div-long/2addr, rem-long/2addr,
-     *      and-long/2addr, or-long/2addr, xor-long/2addr, add-double/2addr,
-     *      sub-double/2addr, mul-double/2addr, div-double/2addr,
-     *      rem-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    bl     .LOP_DIV_LONG_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 1
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      __aeabi_ldivmod                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 12-15 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_LONG_2ADDR: /* 0xbf */
-/* File: armv6t2_taint/OP_REM_LONG_2ADDR.S */
-/* ldivmod returns quotient in r0/r1 and remainder in r2/r3 */
-/* File: armv6t2_taint/binopWide2addr.S */
-    /*
-     * Generic 64-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-long/2addr, sub-long/2addr, div-long/2addr, rem-long/2addr,
-     *      and-long/2addr, or-long/2addr, xor-long/2addr, add-double/2addr,
-     *      sub-double/2addr, mul-double/2addr, div-double/2addr,
-     *      rem-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    bl     .LOP_REM_LONG_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 1
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      __aeabi_ldivmod                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r2,r3}     @ vAA/vAA+1<- r2/r3
-    str     r2, [r9, #0]
-    str     r10, [r9, #4]
-    str     r3, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 12-15 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AND_LONG_2ADDR: /* 0xc0 */
-/* File: armv6t2_taint/OP_AND_LONG_2ADDR.S */
-/* File: armv6t2_taint/binopWide2addr.S */
-    /*
-     * Generic 64-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-long/2addr, sub-long/2addr, div-long/2addr, rem-long/2addr,
-     *      and-long/2addr, or-long/2addr, xor-long/2addr, add-double/2addr,
-     *      sub-double/2addr, mul-double/2addr, div-double/2addr,
-     *      rem-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    bl     .LOP_AND_LONG_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-    and     r0, r0, r2                           @ optional op; may set condition codes
-    and     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 12-15 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AND_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_OR_LONG_2ADDR: /* 0xc1 */
-/* File: armv6t2_taint/OP_OR_LONG_2ADDR.S */
-/* File: armv6t2_taint/binopWide2addr.S */
-    /*
-     * Generic 64-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-long/2addr, sub-long/2addr, div-long/2addr, rem-long/2addr,
-     *      and-long/2addr, or-long/2addr, xor-long/2addr, add-double/2addr,
-     *      sub-double/2addr, mul-double/2addr, div-double/2addr,
-     *      rem-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    bl     .LOP_OR_LONG_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-    orr     r0, r0, r2                           @ optional op; may set condition codes
-    orr     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 12-15 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_OR_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_XOR_LONG_2ADDR: /* 0xc2 */
-/* File: armv6t2_taint/OP_XOR_LONG_2ADDR.S */
-/* File: armv6t2_taint/binopWide2addr.S */
-    /*
-     * Generic 64-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-long/2addr, sub-long/2addr, div-long/2addr, rem-long/2addr,
-     *      and-long/2addr, or-long/2addr, xor-long/2addr, add-double/2addr,
-     *      sub-double/2addr, mul-double/2addr, div-double/2addr,
-     *      rem-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    bl     .LOP_XOR_LONG_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-    eor     r0, r0, r2                           @ optional op; may set condition codes
-    eor     r1, r1, r3                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 12-15 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_XOR_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHL_LONG_2ADDR: /* 0xc3 */
-/* File: armv6t2_taint/OP_SHL_LONG_2ADDR.S */
-    /*
-     * Long integer shift, 2addr version.  vA is 64-bit value/result, vB is
-     * 32-bit shift distance.
-     */
-    /* shl-long/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r2, r3)                    @ r2<- vB
-// begin WITH_TAINT_TRACKING
-    bl      shl_long_2addr_taint_prop
-// end WITH_TAINT_TRACKING
-
-    mov     r1, r1, asl r2              @  r1<- r1 << r2
-    rsb     r3, r2, #32                 @  r3<- 32 - r2
-    orr     r1, r1, r0, lsr r3          @  r1<- r1 | (r0 << (32-r2))
-    subs    ip, r2, #32                 @  ip<- r2 - 32
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    movpl   r1, r0, asl ip              @  if r2 >= 32, r1<- r0 << (r2-32)
-    mov     r0, r0, asl r2              @  r0<- r0 << r2
-    b       .LOP_SHL_LONG_2ADDR_finish
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHL_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHR_LONG_2ADDR: /* 0xc4 */
-/* File: armv6t2_taint/OP_SHR_LONG_2ADDR.S */
-    /*
-     * Long integer shift, 2addr version.  vA is 64-bit value/result, vB is
-     * 32-bit shift distance.
-     */
-    /* shr-long/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r2, r3)                    @ r2<- vB
-// begin WITH_TAINT_TRACKING
-    bl      shr_long_2addr_taint_prop
-// end WITH_TAINT_TRACKING
-
-    mov     r0, r0, lsr r2              @  r0<- r2 >> r2
-    rsb     r3, r2, #32                 @  r3<- 32 - r2
-    orr     r0, r0, r1, asl r3          @  r0<- r0 | (r1 << (32-r2))
-    subs    ip, r2, #32                 @  ip<- r2 - 32
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    movpl   r0, r1, asr ip              @  if r2 >= 32, r0<-r1 >> (r2-32)
-    mov     r1, r1, asr r2              @  r1<- r1 >> r2
-    b       .LOP_SHR_LONG_2ADDR_finish
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHR_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_USHR_LONG_2ADDR: /* 0xc5 */
-/* File: armv6t2_taint/OP_USHR_LONG_2ADDR.S */
-    /*
-     * Long integer shift, 2addr version.  vA is 64-bit value/result, vB is
-     * 32-bit shift distance.
-     */
-    /* ushr-long/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r2, r3)                    @ r2<- vB
-// begin WITH_TAINT_TRACKING
-    bl      ushr_long_2addr_taint_prop
-// end WITH_TAINT_TRACKING
-
-    mov     r0, r0, lsr r2              @  r0<- r2 >> r2
-    rsb     r3, r2, #32                 @  r3<- 32 - r2
-    orr     r0, r0, r1, asl r3          @  r0<- r0 | (r1 << (32-r2))
-    subs    ip, r2, #32                 @  ip<- r2 - 32
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    movpl   r0, r1, lsr ip              @  if r2 >= 32, r0<-r1 >>> (r2-32)
-    mov     r1, r1, lsr r2              @  r1<- r1 >>> r2
-    b       .LOP_USHR_LONG_2ADDR_finish
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_USHR_LONG_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_FLOAT_2ADDR: /* 0xc6 */
-/* File: arm-vfp_taint/OP_ADD_FLOAT_2ADDR.S */
-/* File: arm-vfp_taint/fbinop2addr.S */
-    /*
-     * Generic 32-bit floating point "/2addr" binary operation.  Provide
-     * an "instr" line that specifies an instruction that performs
-     * "s2 = s0 op s1".
-     *
-     * For: add-float/2addr, sub-float/2addr, mul-float/2addr, div-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    and     r9, r9, #15                 @ r9<- A
-    flds    s1, [r3]                    @ s1<- vB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    flds    s0, [r9]                    @ s0<- vA
-// begin WITH_TAINT_TRACKING
-    ldr     r1, [r9, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b       .LOP_ADD_FLOAT_2ADDR_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_FLOAT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SUB_FLOAT_2ADDR: /* 0xc7 */
-/* File: arm-vfp_taint/OP_SUB_FLOAT_2ADDR.S */
-/* File: arm-vfp_taint/fbinop2addr.S */
-    /*
-     * Generic 32-bit floating point "/2addr" binary operation.  Provide
-     * an "instr" line that specifies an instruction that performs
-     * "s2 = s0 op s1".
-     *
-     * For: add-float/2addr, sub-float/2addr, mul-float/2addr, div-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    and     r9, r9, #15                 @ r9<- A
-    flds    s1, [r3]                    @ s1<- vB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    flds    s0, [r9]                    @ s0<- vA
-// begin WITH_TAINT_TRACKING
-    ldr     r1, [r9, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b       .LOP_SUB_FLOAT_2ADDR_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SUB_FLOAT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_FLOAT_2ADDR: /* 0xc8 */
-/* File: arm-vfp_taint/OP_MUL_FLOAT_2ADDR.S */
-/* File: arm-vfp_taint/fbinop2addr.S */
-    /*
-     * Generic 32-bit floating point "/2addr" binary operation.  Provide
-     * an "instr" line that specifies an instruction that performs
-     * "s2 = s0 op s1".
-     *
-     * For: add-float/2addr, sub-float/2addr, mul-float/2addr, div-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    and     r9, r9, #15                 @ r9<- A
-    flds    s1, [r3]                    @ s1<- vB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    flds    s0, [r9]                    @ s0<- vA
-// begin WITH_TAINT_TRACKING
-    ldr     r1, [r9, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b       .LOP_MUL_FLOAT_2ADDR_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_FLOAT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_FLOAT_2ADDR: /* 0xc9 */
-/* File: arm-vfp_taint/OP_DIV_FLOAT_2ADDR.S */
-/* File: arm-vfp_taint/fbinop2addr.S */
-    /*
-     * Generic 32-bit floating point "/2addr" binary operation.  Provide
-     * an "instr" line that specifies an instruction that performs
-     * "s2 = s0 op s1".
-     *
-     * For: add-float/2addr, sub-float/2addr, mul-float/2addr, div-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    and     r9, r9, #15                 @ r9<- A
-    flds    s1, [r3]                    @ s1<- vB
-// begin WITH_TAINT_TRACKING
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-    flds    s0, [r9]                    @ s0<- vA
-// begin WITH_TAINT_TRACKING
-    ldr     r1, [r9, #4]
-    orr     r0, r0, r1
-// end WITH_TAINT_TRACKING
-    b       .LOP_DIV_FLOAT_2ADDR_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_FLOAT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_FLOAT_2ADDR: /* 0xca */
-/* File: armv6t2_taint/OP_REM_FLOAT_2ADDR.S */
-/* EABI doesn't define a float remainder function, but libm does */
-/* File: armv6t2_taint/binop2addr.S */
-    /*
-     * Generic 32-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/2addr, sub-int/2addr, mul-int/2addr, div-int/2addr,
-     *      rem-int/2addr, and-int/2addr, or-int/2addr, xor-int/2addr,
-     *      shl-int/2addr, shr-int/2addr, ushr-int/2addr, add-float/2addr,
-     *      sub-float/2addr, mul-float/2addr, div-float/2addr, rem-float/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r1, r3)                    @ r1<- vB
-    GET_VREG(r0, r9)                    @ r0<- vA
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_REM_FLOAT_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      fmodf                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_FLOAT_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_DOUBLE_2ADDR: /* 0xcb */
-/* File: arm-vfp_taint/OP_ADD_DOUBLE_2ADDR.S */
-/* File: arm-vfp_taint/fbinopWide2addr.S */
-    /*
-     * Generic 64-bit floating point "/2addr" binary operation.  Provide
-     * an "instr" line that specifies an instruction that performs
-     * "d2 = d0 op d1".
-     *
-     * For: add-double/2addr, sub-double/2addr, mul-double/2addr,
-     *      div-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    and     r9, r9, #15                 @ r9<- A
-// begin WITH_TAINT_TRACKING
-//    fldd    d1, [r3]                    @ d1<- vB
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-//    fldd    d0, [r9]                    @ d0<- vA
-    flds    s0, [r9]
-    flds    s1, [r9, #8]
-    ldr     r1, [r9, #4]
-// end WITH_TAINT_TRACKING
-    b     .LOP_ADD_DOUBLE_2ADDR_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_DOUBLE_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SUB_DOUBLE_2ADDR: /* 0xcc */
-/* File: arm-vfp_taint/OP_SUB_DOUBLE_2ADDR.S */
-/* File: arm-vfp_taint/fbinopWide2addr.S */
-    /*
-     * Generic 64-bit floating point "/2addr" binary operation.  Provide
-     * an "instr" line that specifies an instruction that performs
-     * "d2 = d0 op d1".
-     *
-     * For: add-double/2addr, sub-double/2addr, mul-double/2addr,
-     *      div-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    and     r9, r9, #15                 @ r9<- A
-// begin WITH_TAINT_TRACKING
-//    fldd    d1, [r3]                    @ d1<- vB
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-//    fldd    d0, [r9]                    @ d0<- vA
-    flds    s0, [r9]
-    flds    s1, [r9, #8]
-    ldr     r1, [r9, #4]
-// end WITH_TAINT_TRACKING
-    b     .LOP_SUB_DOUBLE_2ADDR_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SUB_DOUBLE_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_DOUBLE_2ADDR: /* 0xcd */
-/* File: arm-vfp_taint/OP_MUL_DOUBLE_2ADDR.S */
-/* File: arm-vfp_taint/fbinopWide2addr.S */
-    /*
-     * Generic 64-bit floating point "/2addr" binary operation.  Provide
-     * an "instr" line that specifies an instruction that performs
-     * "d2 = d0 op d1".
-     *
-     * For: add-double/2addr, sub-double/2addr, mul-double/2addr,
-     *      div-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    and     r9, r9, #15                 @ r9<- A
-// begin WITH_TAINT_TRACKING
-//    fldd    d1, [r3]                    @ d1<- vB
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-//    fldd    d0, [r9]                    @ d0<- vA
-    flds    s0, [r9]
-    flds    s1, [r9, #8]
-    ldr     r1, [r9, #4]
-// end WITH_TAINT_TRACKING
-    b     .LOP_MUL_DOUBLE_2ADDR_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_DOUBLE_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_DOUBLE_2ADDR: /* 0xce */
-/* File: arm-vfp_taint/OP_DIV_DOUBLE_2ADDR.S */
-/* File: arm-vfp_taint/fbinopWide2addr.S */
-    /*
-     * Generic 64-bit floating point "/2addr" binary operation.  Provide
-     * an "instr" line that specifies an instruction that performs
-     * "d2 = d0 op d1".
-     *
-     * For: add-double/2addr, sub-double/2addr, mul-double/2addr,
-     *      div-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r3, rINST, lsr #12          @ r3<- B
-    mov     r9, rINST, lsr #8           @ r9<- A+
-    VREG_INDEX_TO_ADDR(r3, r3)          @ r3<- &vB
-    and     r9, r9, #15                 @ r9<- A
-// begin WITH_TAINT_TRACKING
-//    fldd    d1, [r3]                    @ d1<- vB
-    flds    s2, [r3]
-    flds    s3, [r3, #8]
-    ldr     r0, [r3, #4]
-// end WITH_TAINT_TRACKING
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vA
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-//    fldd    d0, [r9]                    @ d0<- vA
-    flds    s0, [r9]
-    flds    s1, [r9, #8]
-    ldr     r1, [r9, #4]
-// end WITH_TAINT_TRACKING
-    b     .LOP_DIV_DOUBLE_2ADDR_finish
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_DOUBLE_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_DOUBLE_2ADDR: /* 0xcf */
-/* File: armv6t2_taint/OP_REM_DOUBLE_2ADDR.S */
-/* EABI doesn't define a double remainder function, but libm does */
-/* File: armv6t2_taint/binopWide2addr.S */
-    /*
-     * Generic 64-bit "/2addr" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0-r1 op r2-r3".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-long/2addr, sub-long/2addr, div-long/2addr, rem-long/2addr,
-     *      and-long/2addr, or-long/2addr, xor-long/2addr, add-double/2addr,
-     *      sub-double/2addr, mul-double/2addr, div-double/2addr,
-     *      rem-double/2addr
-     */
-    /* binop/2addr vA, vB */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-// begin WITH_TAINT_TRACKING
-    bl     .LOP_REM_DOUBLE_2ADDR_taint_prop
-// end WITH_TAINT_TRACKING
-    .if 0
-    orrs    ip, r2, r3                  @ second arg (r2-r3) is zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(1)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      fmod                              @ result<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0,r1}     @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 12-15 instructions */
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_DOUBLE_2ADDR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_INT_LIT16: /* 0xd0 */
-/* File: armv6t2_taint/OP_ADD_INT_LIT16.S */
-/* File: armv6t2_taint/binopLit16.S */
-    /*
-     * Generic 32-bit "lit16" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit16, rsub-int, mul-int/lit16, div-int/lit16,
-     *      rem-int/lit16, and-int/lit16, or-int/lit16, xor-int/lit16
-     */
-    /* binop/lit16 vA, vB, #+CCCC */
-    FETCH_S(r1, 1)                      @ r1<- ssssCCCC (sign-extended)
-    mov     r2, rINST, lsr #12          @ r2<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r2)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)                    @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r3)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r3)
-// end WITH_TAINT_TRACKING
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    add     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_INT_LIT16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_RSUB_INT: /* 0xd1 */
-/* File: armv6t2_taint/OP_RSUB_INT.S */
-/* this op is "rsub-int", but can be thought of as "rsub-int/lit16" */
-/* File: armv6t2_taint/binopLit16.S */
-    /*
-     * Generic 32-bit "lit16" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit16, rsub-int, mul-int/lit16, div-int/lit16,
-     *      rem-int/lit16, and-int/lit16, or-int/lit16, xor-int/lit16
-     */
-    /* binop/lit16 vA, vB, #+CCCC */
-    FETCH_S(r1, 1)                      @ r1<- ssssCCCC (sign-extended)
-    mov     r2, rINST, lsr #12          @ r2<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r2)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)                    @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r3)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r3)
-// end WITH_TAINT_TRACKING
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    rsb     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_RSUB_INT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_INT_LIT16: /* 0xd2 */
-/* File: armv6t2_taint/OP_MUL_INT_LIT16.S */
-/* must be "mul r0, r1, r0" -- "r0, r0, r1" is illegal */
-/* File: armv6t2_taint/binopLit16.S */
-    /*
-     * Generic 32-bit "lit16" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit16, rsub-int, mul-int/lit16, div-int/lit16,
-     *      rem-int/lit16, and-int/lit16, or-int/lit16, xor-int/lit16
-     */
-    /* binop/lit16 vA, vB, #+CCCC */
-    FETCH_S(r1, 1)                      @ r1<- ssssCCCC (sign-extended)
-    mov     r2, rINST, lsr #12          @ r2<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r2)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)                    @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r3)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r3)
-// end WITH_TAINT_TRACKING
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    mul     r0, r1, r0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_INT_LIT16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_INT_LIT16: /* 0xd3 */
-/* File: armv6t2_taint/OP_DIV_INT_LIT16.S */
-/* File: armv6t2_taint/binopLit16.S */
-    /*
-     * Generic 32-bit "lit16" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit16, rsub-int, mul-int/lit16, div-int/lit16,
-     *      rem-int/lit16, and-int/lit16, or-int/lit16, xor-int/lit16
-     */
-    /* binop/lit16 vA, vB, #+CCCC */
-    FETCH_S(r1, 1)                      @ r1<- ssssCCCC (sign-extended)
-    mov     r2, rINST, lsr #12          @ r2<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r2)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)                    @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r3)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r3)
-// end WITH_TAINT_TRACKING
-    .if 1
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    bl     __aeabi_idiv                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_INT_LIT16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_INT_LIT16: /* 0xd4 */
-/* File: armv6t2_taint/OP_REM_INT_LIT16.S */
-/* idivmod returns quotient in r0 and remainder in r1 */
-/* File: armv6t2_taint/binopLit16.S */
-    /*
-     * Generic 32-bit "lit16" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit16, rsub-int, mul-int/lit16, div-int/lit16,
-     *      rem-int/lit16, and-int/lit16, or-int/lit16, xor-int/lit16
-     */
-    /* binop/lit16 vA, vB, #+CCCC */
-    FETCH_S(r1, 1)                      @ r1<- ssssCCCC (sign-extended)
-    mov     r2, rINST, lsr #12          @ r2<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r2)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)                    @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r3)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r3)
-// end WITH_TAINT_TRACKING
-    .if 1
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    bl      __aeabi_idivmod                              @ r1<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r1, r9)               @ vAA<- r1
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_INT_LIT16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AND_INT_LIT16: /* 0xd5 */
-/* File: armv6t2_taint/OP_AND_INT_LIT16.S */
-/* File: armv6t2_taint/binopLit16.S */
-    /*
-     * Generic 32-bit "lit16" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit16, rsub-int, mul-int/lit16, div-int/lit16,
-     *      rem-int/lit16, and-int/lit16, or-int/lit16, xor-int/lit16
-     */
-    /* binop/lit16 vA, vB, #+CCCC */
-    FETCH_S(r1, 1)                      @ r1<- ssssCCCC (sign-extended)
-    mov     r2, rINST, lsr #12          @ r2<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r2)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)                    @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r3)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r3)
-// end WITH_TAINT_TRACKING
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    and     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AND_INT_LIT16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_OR_INT_LIT16: /* 0xd6 */
-/* File: armv6t2_taint/OP_OR_INT_LIT16.S */
-/* File: armv6t2_taint/binopLit16.S */
-    /*
-     * Generic 32-bit "lit16" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit16, rsub-int, mul-int/lit16, div-int/lit16,
-     *      rem-int/lit16, and-int/lit16, or-int/lit16, xor-int/lit16
-     */
-    /* binop/lit16 vA, vB, #+CCCC */
-    FETCH_S(r1, 1)                      @ r1<- ssssCCCC (sign-extended)
-    mov     r2, rINST, lsr #12          @ r2<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r2)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)                    @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r3)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r3)
-// end WITH_TAINT_TRACKING
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    orr     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_OR_INT_LIT16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_XOR_INT_LIT16: /* 0xd7 */
-/* File: armv6t2_taint/OP_XOR_INT_LIT16.S */
-/* File: armv6t2_taint/binopLit16.S */
-    /*
-     * Generic 32-bit "lit16" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit16, rsub-int, mul-int/lit16, div-int/lit16,
-     *      rem-int/lit16, and-int/lit16, or-int/lit16, xor-int/lit16
-     */
-    /* binop/lit16 vA, vB, #+CCCC */
-    FETCH_S(r1, 1)                      @ r1<- ssssCCCC (sign-extended)
-    mov     r2, rINST, lsr #12          @ r2<- B
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    GET_VREG(r0, r2)                    @ r0<- vB
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)                    @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r3)          @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r3)
-// end WITH_TAINT_TRACKING
-    .if 0
-    cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    eor     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-13 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_XOR_INT_LIT16      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_ADD_INT_LIT8: /* 0xd8 */
-/* File: armv5te_taint/OP_ADD_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    add     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_ADD_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_RSUB_INT_LIT8: /* 0xd9 */
-/* File: armv5te_taint/OP_RSUB_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    rsb     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_RSUB_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_MUL_INT_LIT8: /* 0xda */
-/* File: armv5te_taint/OP_MUL_INT_LIT8.S */
-/* must be "mul r0, r1, r0" -- "r0, r0, r1" is illegal */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    mul     r0, r1, r0                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_MUL_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_DIV_INT_LIT8: /* 0xdb */
-/* File: armv5te_taint/OP_DIV_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 1
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl     __aeabi_idiv                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_DIV_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_REM_INT_LIT8: /* 0xdc */
-/* File: armv5te_taint/OP_REM_INT_LIT8.S */
-/* idivmod returns quotient in r0 and remainder in r1 */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 1
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    bl      __aeabi_idivmod                              @ r1<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r1, r9)               @ vAA<- r1
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_REM_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_AND_INT_LIT8: /* 0xdd */
-/* File: armv5te_taint/OP_AND_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    and     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_AND_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_OR_INT_LIT8: /* 0xde */
-/* File: armv5te_taint/OP_OR_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    orr     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_OR_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_XOR_INT_LIT8: /* 0xdf */
-/* File: armv5te_taint/OP_XOR_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-                               @ optional op; may set condition codes
-    eor     r0, r0, r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_XOR_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHL_INT_LIT8: /* 0xe0 */
-/* File: armv5te_taint/OP_SHL_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, asl r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHL_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SHR_INT_LIT8: /* 0xe1 */
-/* File: armv5te_taint/OP_SHR_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, asr r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SHR_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_USHR_INT_LIT8: /* 0xe2 */
-/* File: armv5te_taint/OP_USHR_INT_LIT8.S */
-/* File: armv5te_taint/binopLit8.S */
-    /*
-     * Generic 32-bit "lit8" binary operation.  Provide an "instr" line
-     * that specifies an instruction that performs "result = r0 op r1".
-     * This could be an ARM instruction or a function call.  (If the result
-     * comes back in a register other than r0, you can override "result".)
-     *
-     * If "chkzero" is set to 1, we perform a divide-by-zero check on
-     * vCC (r1).  Useful for integer division and modulus.
-     *
-     * For: add-int/lit8, rsub-int/lit8, mul-int/lit8, div-int/lit8,
-     *      rem-int/lit8, and-int/lit8, or-int/lit8, xor-int/lit8,
-     *      shl-int/lit8, shr-int/lit8, ushr-int/lit8
-     */
-    /* binop/lit8 vAA, vBB, #+CC */
-    FETCH_S(r3, 1)                      @ r3<- ssssCCBB (sign-extended for CC)
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    and     r2, r3, #255                @ r2<- BB
-    GET_VREG(r0, r2)                    @ r0<- vBB
-    movs    r1, r3, asr #8              @ r1<- ssssssCC (sign extended)
-    .if 0
-    @cmp     r1, #0                      @ is second operand zero?
-    beq     common_errDivideByZero
-    .endif
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r10)                   @ r3<- rFP+4
-    GET_VREG_TAINT(r2, r2, r10)         @ r2<- vB.taint
-    SET_VREG_TAINT(r2, r9, r10)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-
-    and     r1, r1, #31                           @ optional op; may set condition codes
-    mov     r0, r0, lsr r1                              @ r0<- op, r0-r3 changed
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)               @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-12 instructions */
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_USHR_INT_LIT8      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_VOLATILE: /* 0xe3 */
-/* File: armv5te_taint/OP_IGET_VOLATILE.S */
-/* File: armv5te_taint/OP_IGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field get.
-     *
-     * for: iget, iget-object, iget-boolean, iget-byte, iget-char, iget-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_VOLATILE_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_VOLATILE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_VOLATILE_finish
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_VOLATILE: /* 0xe4 */
-/* File: armv5te_taint/OP_IPUT_VOLATILE.S */
-/* File: armv5te_taint/OP_IPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field put.
-     *
-     * for: iput, iput-boolean, iput-byte, iput-char, iput-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_VOLATILE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_VOLATILE_finish          @ yes, finish up
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_VOLATILE: /* 0xe5 */
-/* File: armv5te_taint/OP_SGET_VOLATILE.S */
-/* File: armv5te_taint/OP_SGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SGET handler.
-     *
-     * for: sget, sget-object, sget-boolean, sget-byte, sget-char, sget-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_VOLATILE_resolve         @ yes, do resolve
-.LOP_SGET_VOLATILE_finish: @ field ptr in r0
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SGET_VOLATILE_taint_prop
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_VOLATILE: /* 0xe6 */
-/* File: armv5te_taint/OP_SPUT_VOLATILE.S */
-/* File: armv5te_taint/OP_SPUT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SPUT handler.
-     *
-     * for: sput, sput-boolean, sput-byte, sput-char, sput-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]        @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_VOLATILE_resolve         @ yes, do resolve
-.LOP_SPUT_VOLATILE_finish:   @ field ptr in r0
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- fp[AA]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_SPUT_VOLATILE_taint_prop
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_OBJECT_VOLATILE: /* 0xe7 */
-/* File: armv5te_taint/OP_IGET_OBJECT_VOLATILE.S */
-/* File: armv5te_taint/OP_IGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit instance field get.
-     *
-     * for: iget, iget-object, iget-boolean, iget-byte, iget-char, iget-short
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_OBJECT_VOLATILE_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_OBJECT_VOLATILE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_OBJECT_VOLATILE_finish
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_OBJECT_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_WIDE_VOLATILE: /* 0xe8 */
-/* File: armv5te_taint/OP_IGET_WIDE_VOLATILE.S */
-/* File: armv5te_taint/OP_IGET_WIDE.S */
-    /*
-     * Wide 32-bit instance field get.
-     */
-    /* iget-wide vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pResFields
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_WIDE_VOLATILE_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IGET_WIDE_VOLATILE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method] @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0
-    bne     .LOP_IGET_WIDE_VOLATILE_finish
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_WIDE_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_WIDE_VOLATILE: /* 0xe9 */
-/* File: armv5te_taint/OP_IPUT_WIDE_VOLATILE.S */
-/* File: armv5te_taint/OP_IPUT_WIDE.S */
-    /* iput-wide vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_WIDE_VOLATILE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method] @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_WIDE_VOLATILE_finish          @ yes, finish up
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_WIDE_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_WIDE_VOLATILE: /* 0xea */
-/* File: armv5te_taint/OP_SGET_WIDE_VOLATILE.S */
-/* File: armv5te_taint/OP_SGET_WIDE.S */
-    /*
-     * 64-bit SGET handler.
-     */
-    /* sget-wide vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_WIDE_VOLATILE_resolve         @ yes, do resolve
-    b		.LOP_SGET_WIDE_VOLATILE_finish
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_WIDE_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_WIDE_VOLATILE: /* 0xeb */
-/* File: armv5te_taint/OP_SPUT_WIDE_VOLATILE.S */
-/* File: armv5te_taint/OP_SPUT_WIDE.S */
-    /*
-     * 64-bit SPUT handler.
-     */
-    /* sput-wide vAA, field@BBBB */
-    ldr     r0, [rSELF, #offThread_methodClassDex]  @ r0<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r0, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    mov     r9, rINST, lsr #8           @ r9<- AA
-    ldr     r2, [r10, r1, lsl #2]        @ r2<- resolved StaticField ptr
-// begin WITH_TAINT_TRACKING
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    cmp     r2, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_WIDE_VOLATILE_resolve         @ yes, do resolve
-.LOP_SPUT_WIDE_VOLATILE_finish: @ field ptr in r2, AA in r9
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SPUT_WIDE_VOLATILE_taint_prop
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(r10)                @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    str	    r3, [r2, #offStaticField_taint]
-// end WITH_TAINT_TRACKING
-    .if 1
-    add     r2, r2, #offStaticField_value @ r2<- pointer to data
-    bl      dvmQuasiAtomicSwap64Sync    @ stores r0/r1 into addr r2
-    .else
-    strd    r0, [r2, #offStaticField_value] @ field<- vAA/vAA+1
-    .endif
-    GOTO_OPCODE(r10)                    @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_WIDE_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_BREAKPOINT: /* 0xec */
-/* File: armv5te_taint/OP_BREAKPOINT.S */
-    /*
-     * Breakpoint handler.
-     *
-     * Restart this instruction with the original opcode.  By
-     * the time we get here, the breakpoint will have already been
-     * handled.
-     */
-    mov     r0, rPC
-    bl      dvmGetOriginalOpcode        @ (rPC)
-    FETCH(rINST, 0)                     @ reload OP_BREAKPOINT + rest of inst
-    ldr     r1, [rSELF, #offThread_mainHandlerTable]
-    and     rINST, #0xff00
-    orr     rINST, rINST, r0
-    GOTO_OPCODE_BASE(r1, r0)
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_BREAKPOINT      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_THROW_VERIFICATION_ERROR: /* 0xed */
-/* File: armv5te_taint/OP_THROW_VERIFICATION_ERROR.S */
-    /*
-     * Handle a throw-verification-error instruction.  This throws an
-     * exception for an error discovered during verification.  The
-     * exception is indicated by AA, with some detail provided by BBBB.
-     */
-    /* op AA, ref@BBBB */
-    ldr     r0, [rSELF, #offThread_method]    @ r0<- self->method
-    FETCH(r2, 1)                        @ r2<- BBBB
-    EXPORT_PC()                         @ export the PC
-    mov     r1, rINST, lsr #8           @ r1<- AA
-    bl      dvmThrowVerificationError   @ always throws
-    b       common_exceptionThrown      @ handle exception
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_THROW_VERIFICATION_ERROR      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_EXECUTE_INLINE: /* 0xee */
-/* File: armv5te_taint/OP_EXECUTE_INLINE.S */
-    /*
-     * Execute a "native inline" instruction.
-     *
-     * We need to call an InlineOp4Func:
-     *  bool (func)(u4 arg0, u4 arg1, u4 arg2, u4 arg3, JValue* pResult)
-     *
-     * The first four args are in r0-r3, pointer to return value storage
-     * is on the stack.  The function's return value is a flag that tells
-     * us if an exception was thrown.
-     *
-     * TUNING: could maintain two tables, pointer in Thread and
-     * swap if profiler/debuggger active.
-     */
-    /* [opt] execute-inline vAA, {vC, vD, vE, vF}, inline@BBBB */
-    ldrh    r2, [rSELF, #offThread_subMode]
-    FETCH(r10, 1)                       @ r10<- BBBB
-    EXPORT_PC()                         @ can throw
-    ands    r2, #kSubModeDebugProfile   @ Any going on?
-    bne     .LOP_EXECUTE_INLINE_debugmode       @ yes - take slow path
-// begin WITH_TAINT_TRACKING
-    b       .LOP_EXECUTE_INLINE_resume
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_EXECUTE_INLINE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_EXECUTE_INLINE_RANGE: /* 0xef */
-/* File: armv5te_taint/OP_EXECUTE_INLINE_RANGE.S */
-    /*
-     * Execute a "native inline" instruction, using "/range" semantics.
-     * Same idea as execute-inline, but we get the args differently.
-     *
-     * We need to call an InlineOp4Func:
-     *  bool (func)(u4 arg0, u4 arg1, u4 arg2, u4 arg3, JValue* pResult)
-     *
-     * The first four args are in r0-r3, pointer to return value storage
-     * is on the stack.  The function's return value is a flag that tells
-     * us if an exception was thrown.
-     */
-    /* [opt] execute-inline/range {vCCCC..v(CCCC+AA-1)}, inline@BBBB */
-    ldrh    r2, [rSELF, #offThread_subMode]
-    FETCH(r10, 1)                       @ r10<- BBBB
-    EXPORT_PC()                         @ can throw
-    ands    r2, #kSubModeDebugProfile   @ Any going on?
-    bne     .LOP_EXECUTE_INLINE_RANGE_debugmode       @ yes - take slow path
-// begin WITH_TAINT_TRACKING
-    b       .LOP_EXECUTE_INLINE_RANGE_resume
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_EXECUTE_INLINE_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_OBJECT_INIT_RANGE: /* 0xf0 */
-/* File: armv5te_taint/OP_INVOKE_OBJECT_INIT_RANGE.S */
-    /*
-     * Invoke Object.<init> on an object.  In practice we know that
-     * Object's nullary constructor doesn't do anything, so we just
-     * skip it unless a debugger is active.
-     */
-    FETCH(r1, 2)                  @ r1<- CCCC
-    GET_VREG(r0, r1)                    @ r0<- "this" ptr
-    cmp     r0, #0                      @ check for NULL
-    beq     common_errNullObject        @ export PC and throw NPE
-    ldr     r1, [r0, #offObject_clazz]  @ r1<- obj->clazz
-    ldr     r2, [r1, #offClassObject_accessFlags] @ r2<- clazz->accessFlags
-    tst     r2, #CLASS_ISFINALIZABLE    @ is this class finalizable?
-    bne     .LOP_INVOKE_OBJECT_INIT_RANGE_setFinal        @ yes, go
-.LOP_INVOKE_OBJECT_INIT_RANGE_finish:
-    ldrh    r1, [rSELF, #offThread_subMode]
-    ands    r1, #kSubModeDebuggerActive @ debugger active?
-    bne     .LOP_INVOKE_OBJECT_INIT_RANGE_debugger        @ Yes - skip optimization
-    FETCH_ADVANCE_INST(2+1)       @ advance to next instr, load rINST
-    GET_INST_OPCODE(ip)                 @ ip<- opcode from rINST
-    GOTO_OPCODE(ip)                     @ execute it
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_OBJECT_INIT_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_RETURN_VOID_BARRIER: /* 0xf1 */
-/* File: armv5te_taint/OP_RETURN_VOID_BARRIER.S */
-    SMP_DMB_ST
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_CLEAR(r1)
-    str     r1, [rSELF, #offThread_rtaint]
-// end WITH_TAINT_TRACKING
-    b       common_returnFromMethod
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_RETURN_VOID_BARRIER      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_QUICK: /* 0xf2 */
-/* File: armv6t2_taint/OP_IGET_QUICK.S */
-    /* For: iget-quick, iget-object-quick */
-    /* op vA, vB, offset@CCCC */
-    mov     r2, rINST, lsr #12          @ r2<- B
-    FETCH(r1, 1)                        @ r1<- field byte offset
-    GET_VREG(r3, r2)                    @ r3<- object we're operating on
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r0)
-    GET_VREG_TAINT(r9, r2, r0)
-// end WITH_TAINT_TRACKING
-    ubfx    r2, rINST, #8, #4           @ r2<- A
-    cmp     r3, #0                      @ check object for null
-    beq     common_errNullObject        @ object was null
-    ldr     r0, [r3, r1]                @ r0<- obj.field (always 32 bits)
-// begin WITH_TAINT_TRACKING
-    bl      .LOP_IGET_QUICK_taint_prop
-//    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST // in subroutine
-// end WITH_TAINT_TRACKING
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r0)
-    SET_VREG_TAINT(r10, r2, r0)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_QUICK      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_WIDE_QUICK: /* 0xf3 */
-/* File: armv6t2_taint/OP_IGET_WIDE_QUICK.S */
-    /* iget-wide-quick vA, vB, offset@CCCC */
-    mov     r2, rINST, lsr #12          @ r2<- B
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r0)
-    GET_VREG_TAINT(r9, r2, r0)
-// end WITH_TAINT_TRACKING
-    FETCH(ip, 1)                        @ ip<- field byte offset
-    GET_VREG(r3, r2)                    @ r3<- object we're operating on
-    ubfx    r2, rINST, #8, #4           @ r2<- A
-    cmp     r3, #0                      @ check object for null
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-    add     r10, ip, #8
-    ldrd    r0, [r3, ip]                @ r0<- obj.field (64 bits, aligned)
-    ldr     r10, [r3, r10]
-    orr     r10, r9, r10
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    bl      iget_wide_quick_taint_prop
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_WIDE_QUICK      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IGET_OBJECT_QUICK: /* 0xf4 */
-/* File: armv5te_taint/OP_IGET_OBJECT_QUICK.S */
-/* File: armv5te_taint/OP_IGET_QUICK.S */
-    /* For: iget-quick, iget-object-quick */
-    /* op vA, vB, offset@CCCC */
-    mov     r2, rINST, lsr #12          @ r2<- B
-    GET_VREG(r3, r2)                    @ r3<- object we're operating on
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r0)
-    GET_VREG_TAINT(r9, r2, r0)
-// end WITH_TAINT_TRACKING
-    FETCH(r1, 1)                        @ r1<- field byte offset
-    cmp     r3, #0                      @ check object for null
-    mov     r2, rINST, lsr #8           @ r2<- A(+)
-    beq     common_errNullObject        @ object was null
-    ldr     r0, [r3, r1]                @ r0<- obj.field (always 32 bits)
-// begin WITH_TAINT_TRACKING
-	bl		.LOP_IGET_OBJECT_QUICK_taint_prop
-//    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST // in subroutine
-// end WITH_TAINT_TRACKING
-    and     r2, r2, #15
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-	SET_TAINT_FP(r0)
-	SET_VREG_TAINT(r10, r2, r0)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IGET_OBJECT_QUICK      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_QUICK: /* 0xf5 */
-/* File: armv6t2_taint/OP_IPUT_QUICK.S */
-    /* For: iput-quick, iput-object-quick */
-    /* op vA, vB, offset@CCCC */
-    mov     r2, rINST, lsr #12          @ r2<- B
-    FETCH(r1, 1)                        @ r1<- field byte offset
-    GET_VREG(r3, r2)                    @ r3<- fp[B], the object pointer
-    ubfx    r2, rINST, #8, #4           @ r2<- A
-    cmp     r3, #0                      @ check object for null
-    beq     common_errNullObject        @ object was null
-    GET_VREG(r0, r2)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r9)
-    GET_VREG_TAINT(r10, r2, r9)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    str     r0, [r3, r1]                @ obj.field (always 32 bits)<- r0
-// begin WITH_TAINT_TRACKING
-    add	    r1, r1, #4
-    str     r10, [r3, r1]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_QUICK      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_WIDE_QUICK: /* 0xf6 */
-/* File: armv6t2_taint/OP_IPUT_WIDE_QUICK.S */
-    /* iput-wide-quick vA, vB, offset@CCCC */
-    mov     r1, rINST, lsr #12          @ r1<- B
-    ubfx    r0, rINST, #8, #4           @ r0<- A
-    GET_VREG(r2, r1)                    @ r2<- fp[B], the object pointer
-// begin WITH_TAINT_TRACKING
-    bl iput_wide_quick_taint_prop
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH(r3, 1)                        @ r3<- field byte offset
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    strd    r0, [r2, r3]                @ obj.field (64 bits, aligned)<- r0/r1
-// begin WITH_TAINT_TRACKING
-    add     r3, r3, #8
-    str     r9, [r2, r3]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_WIDE_QUICK      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_OBJECT_QUICK: /* 0xf7 */
-/* File: armv5te_taint/OP_IPUT_OBJECT_QUICK.S */
-    /* For: iput-object-quick */
-    /* op vA, vB, offset@CCCC */
-    mov     r2, rINST, lsr #12          @ r2<- B
-    GET_VREG(r3, r2)                    @ r3<- fp[B], the object pointer
-    FETCH(r1, 1)                        @ r1<- field byte offset
-    cmp     r3, #0                      @ check object for null
-    mov     r2, rINST, lsr #8           @ r2<- A(+)
-    beq     common_errNullObject        @ object was null
-    and     r2, r2, #15
-    GET_VREG(r0, r2)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    bl    .LOP_IPUT_OBJECT_QUICK_taint_prop
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0
-    strneb  r2, [r2, r3, lsr #GC_CARD_SHIFT] @ mark card based on obj head
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_OBJECT_QUICK      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_VIRTUAL_QUICK: /* 0xf8 */
-/* File: armv5te_taint/OP_INVOKE_VIRTUAL_QUICK.S */
-    /*
-     * Handle an optimized virtual method call.
-     *
-     * for: [opt] invoke-virtual-quick, invoke-virtual-quick/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op vAA, {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    FETCH(r3, 2)                        @ r3<- FEDC or CCCC
-    FETCH(r1, 1)                        @ r1<- BBBB
-    .if     (!0)
-    and     r3, r3, #15                 @ r3<- C (or stays CCCC)
-    .endif
-    GET_VREG(r9, r3)                    @ r9<- vC ("this" ptr)
-    cmp     r9, #0                      @ is "this" null?
-    beq     common_errNullObject        @ null "this", throw exception
-    ldr     r2, [r9, #offObject_clazz]  @ r2<- thisPtr->clazz
-    ldr     r2, [r2, #offClassObject_vtable]    @ r2<- thisPtr->clazz->vtable
-    EXPORT_PC()                         @ invoke must export
-    ldr     r0, [r2, r1, lsl #2]        @ r3<- vtable[BBBB]
-    bl      common_invokeMethodNoRange @ (r0=method, r9="this")
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_VIRTUAL_QUICK      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_VIRTUAL_QUICK_RANGE: /* 0xf9 */
-/* File: armv5te_taint/OP_INVOKE_VIRTUAL_QUICK_RANGE.S */
-/* File: armv5te_taint/OP_INVOKE_VIRTUAL_QUICK.S */
-    /*
-     * Handle an optimized virtual method call.
-     *
-     * for: [opt] invoke-virtual-quick, invoke-virtual-quick/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op vAA, {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    FETCH(r3, 2)                        @ r3<- FEDC or CCCC
-    FETCH(r1, 1)                        @ r1<- BBBB
-    .if     (!1)
-    and     r3, r3, #15                 @ r3<- C (or stays CCCC)
-    .endif
-    GET_VREG(r9, r3)                    @ r9<- vC ("this" ptr)
-    cmp     r9, #0                      @ is "this" null?
-    beq     common_errNullObject        @ null "this", throw exception
-    ldr     r2, [r9, #offObject_clazz]  @ r2<- thisPtr->clazz
-    ldr     r2, [r2, #offClassObject_vtable]    @ r2<- thisPtr->clazz->vtable
-    EXPORT_PC()                         @ invoke must export
-    ldr     r0, [r2, r1, lsl #2]        @ r3<- vtable[BBBB]
-    bl      common_invokeMethodRange @ (r0=method, r9="this")
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_VIRTUAL_QUICK_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_SUPER_QUICK: /* 0xfa */
-/* File: armv5te_taint/OP_INVOKE_SUPER_QUICK.S */
-    /*
-     * Handle an optimized "super" method call.
-     *
-     * for: [opt] invoke-super-quick, invoke-super-quick/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op vAA, {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    FETCH(r10, 2)                       @ r10<- GFED or CCCC
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    .if     (!0)
-    and     r10, r10, #15               @ r10<- D (or stays CCCC)
-    .endif
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r2, [r2, #offMethod_clazz]  @ r2<- method->clazz
-    EXPORT_PC()                         @ must export for invoke
-    ldr     r2, [r2, #offClassObject_super]     @ r2<- method->clazz->super
-    GET_VREG(r9, r10)                   @ r9<- "this"
-    ldr     r2, [r2, #offClassObject_vtable]    @ r2<- ...clazz->super->vtable
-    cmp     r9, #0                      @ null "this" ref?
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- super->vtable[BBBB]
-    beq     common_errNullObject        @ "this" is null, throw exception
-    bl      common_invokeMethodNoRange @ (r0=method, r9="this")
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_SUPER_QUICK      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_INVOKE_SUPER_QUICK_RANGE: /* 0xfb */
-/* File: armv5te_taint/OP_INVOKE_SUPER_QUICK_RANGE.S */
-/* File: armv5te_taint/OP_INVOKE_SUPER_QUICK.S */
-    /*
-     * Handle an optimized "super" method call.
-     *
-     * for: [opt] invoke-super-quick, invoke-super-quick/range
-     */
-    /* op vB, {vD, vE, vF, vG, vA}, class@CCCC */
-    /* op vAA, {vCCCC..v(CCCC+AA-1)}, meth@BBBB */
-    FETCH(r10, 2)                       @ r10<- GFED or CCCC
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    .if     (!1)
-    and     r10, r10, #15               @ r10<- D (or stays CCCC)
-    .endif
-    FETCH(r1, 1)                        @ r1<- BBBB
-    ldr     r2, [r2, #offMethod_clazz]  @ r2<- method->clazz
-    EXPORT_PC()                         @ must export for invoke
-    ldr     r2, [r2, #offClassObject_super]     @ r2<- method->clazz->super
-    GET_VREG(r9, r10)                   @ r9<- "this"
-    ldr     r2, [r2, #offClassObject_vtable]    @ r2<- ...clazz->super->vtable
-    cmp     r9, #0                      @ null "this" ref?
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- super->vtable[BBBB]
-    beq     common_errNullObject        @ "this" is null, throw exception
-    bl      common_invokeMethodRange @ (r0=method, r9="this")
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_INVOKE_SUPER_QUICK_RANGE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_IPUT_OBJECT_VOLATILE: /* 0xfc */
-/* File: armv5te_taint/OP_IPUT_OBJECT_VOLATILE.S */
-/* File: armv5te_taint/OP_IPUT_OBJECT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * 32-bit instance field put.
-     *
-     * for: iput-object, iput-object-volatile
-     */
-    /* op vA, vB, field@CCCC */
-    mov     r0, rINST, lsr #12          @ r0<- B
-    ldr     r3, [rSELF, #offThread_methodClassDex]    @ r3<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref CCCC
-    ldr     r2, [r3, #offDvmDex_pResFields] @ r2<- pDvmDex->pResFields
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    bne     .LOP_IPUT_OBJECT_VOLATILE_finish          @ no, already resolved
-8:  ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveInstField         @ r0<- resolved InstField ptr
-    cmp     r0, #0                      @ success?
-    bne     .LOP_IPUT_OBJECT_VOLATILE_finish          @ yes, finish up
-    b       common_exceptionThrown
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_IPUT_OBJECT_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SGET_OBJECT_VOLATILE: /* 0xfd */
-/* File: armv5te_taint/OP_SGET_OBJECT_VOLATILE.S */
-/* File: armv5te_taint/OP_SGET.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * General 32-bit SGET handler.
-     *
-     * for: sget, sget-object, sget-boolean, sget-byte, sget-char, sget-short
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SGET_OBJECT_VOLATILE_resolve         @ yes, do resolve
-.LOP_SGET_OBJECT_VOLATILE_finish: @ field ptr in r0
-// begin WITH_TAINT_TRACKING
-    bl		.LOP_SGET_OBJECT_VOLATILE_taint_prop
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[AA]<- r0
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SGET_OBJECT_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_SPUT_OBJECT_VOLATILE: /* 0xfe */
-/* File: armv5te_taint/OP_SPUT_OBJECT_VOLATILE.S */
-/* File: armv5te_taint/OP_SPUT_OBJECT.S */
-// begin WITH_TAINT_TRACKING
-// end WITH_TAINT_TRACKING
-    /*
-     * 32-bit SPUT handler for objects
-     *
-     * for: sput-object, sput-object-volatile
-     */
-    /* op vAA, field@BBBB */
-    ldr     r2, [rSELF, #offThread_methodClassDex]    @ r2<- DvmDex
-    FETCH(r1, 1)                        @ r1<- field ref BBBB
-    ldr     r10, [r2, #offDvmDex_pResFields] @ r10<- dvmDex->pResFields
-    ldr     r0, [r10, r1, lsl #2]        @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ is resolved entry null?
-    beq     .LOP_SPUT_OBJECT_VOLATILE_resolve         @ yes, do resolve
-.LOP_SPUT_OBJECT_VOLATILE_finish:   @ field ptr in r0
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- fp[AA]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r3, r2, r3)          @ r3<- taint
-//    ldr     r2, [rSELF, #offThread_cardTable]  @ r2<- card table base
-    ldr     r10, [rSELF, #offThread_cardTable]  @ r10<- card table base
-// end WITH_TAINT_TRACKING
-    ldr     r9, [r0, #offField_clazz]   @ r9<- field->clazz
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SMP_DMB_ST                        @ releasing store
-    b       .LOP_SPUT_OBJECT_VOLATILE_end
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_SPUT_OBJECT_VOLATILE      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
 /* ------------------------------ */
     .balign 64
 .L_OP_UNUSED_FF: /* 0xff */
-/* File: armv5te_taint/OP_UNUSED_FF.S */
-/* File: armv5te_taint/unused.S */
-    bl      common_abort
-
-
+    /* (stub) */
+    SAVE_PC_FP_TO_SELF()            @ only need to export these two
+    mov     r0, rSELF               @ self is first arg to function
+    bl      dvmMterp_OP_UNUSED_FF      @ call
+    LOAD_PC_FP_FROM_SELF()          @ retrieve updated values
+    FETCH_INST()                    @ load next instruction from rPC
+    GET_INST_OPCODE(ip)             @ ...trim down to just the opcode
+    GOTO_OPCODE(ip)                 @ ...and jump to the handler
     .balign 64
     .size   dvmAsmInstructionStart, .-dvmAsmInstructionStart
     .global dvmAsmInstructionEnd
@@ -8467,4114 +3053,6 @@ dvmAsmInstructionEnd:
     .text
     .balign 4
 dvmAsmSisterStart:
-
-/* continuation for OP_CONST_STRING */
-
-    /*
-     * Continuation if the String has not yet been resolved.
-     *  r1: BBBB (String ref)
-     *  r9: target register
-     */
-.LOP_CONST_STRING_resolve:
-    EXPORT_PC()
-    ldr     r0, [rSELF, #offThread_method] @ r0<- self->method
-    ldr     r0, [r0, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveString            @ r0<- String reference
-    cmp     r0, #0                      @ failed?
-    beq     common_exceptionThrown      @ yup, handle the exception
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r9, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_CONST_STRING_JUMBO */
-
-    /*
-     * Continuation if the String has not yet been resolved.
-     *  r1: BBBBBBBB (String ref)
-     *  r9: target register
-     */
-.LOP_CONST_STRING_JUMBO_resolve:
-    EXPORT_PC()
-    ldr     r0, [rSELF, #offThread_method] @ r0<- self->method
-    ldr     r0, [r0, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveString            @ r0<- String reference
-    cmp     r0, #0                      @ failed?
-    beq     common_exceptionThrown      @ yup, handle the exception
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r9, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_CONST_CLASS */
-
-    /*
-     * Continuation if the Class has not yet been resolved.
-     *  r1: BBBB (Class ref)
-     *  r9: target register
-     */
-.LOP_CONST_CLASS_resolve:
-    EXPORT_PC()
-    ldr     r0, [rSELF, #offThread_method] @ r0<- self->method
-    mov     r2, #1                      @ r2<- true
-    ldr     r0, [r0, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveClass             @ r0<- Class reference
-    cmp     r0, #0                      @ failed?
-    beq     common_exceptionThrown      @ yup, handle the exception
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r9, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r9)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_CHECK_CAST */
-
-    /*
-     * Trivial test failed, need to perform full check.  This is common.
-     *  r0 holds obj->clazz
-     *  r1 holds desired class resolved from BBBB
-     *  r9 holds object
-     */
-.LOP_CHECK_CAST_fullcheck:
-    mov     r10, r1                     @ avoid ClassObject getting clobbered
-    bl      dvmInstanceofNonTrivial     @ r0<- boolean result
-    cmp     r0, #0                      @ failed?
-    bne     .LOP_CHECK_CAST_okay            @ no, success
-
-    @ A cast has failed.  We need to throw a ClassCastException.
-    EXPORT_PC()                         @ about to throw
-    ldr     r0, [r9, #offObject_clazz]  @ r0<- obj->clazz (actual class)
-    mov     r1, r10                     @ r1<- desired class
-    bl      dvmThrowClassCastException
-    b       common_exceptionThrown
-
-    /*
-     * Resolution required.  This is the least-likely path.
-     *
-     *  r2 holds BBBB
-     *  r9 holds object
-     */
-.LOP_CHECK_CAST_resolve:
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    mov     r1, r2                      @ r1<- BBBB
-    mov     r2, #0                      @ r2<- false
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveClass             @ r0<- resolved ClassObject ptr
-    cmp     r0, #0                      @ got null?
-    beq     common_exceptionThrown      @ yes, handle exception
-    mov     r1, r0                      @ r1<- class resolved from BBB
-    ldr     r0, [r9, #offObject_clazz]  @ r0<- obj->clazz
-    b       .LOP_CHECK_CAST_resolved        @ pick up where we left off
-
-/* continuation for OP_INSTANCE_OF */
-
-    /*
-     * Trivial test failed, need to perform full check.  This is common.
-     *  r0 holds obj->clazz
-     *  r1 holds class resolved from BBBB
-     *  r9 holds A
-     */
-.LOP_INSTANCE_OF_fullcheck:
-    bl      dvmInstanceofNonTrivial     @ r0<- boolean result
-    @ fall through to OP_INSTANCE_OF_store
-
-    /*
-     * r0 holds boolean result
-     * r9 holds A
-     */
-.LOP_INSTANCE_OF_store:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r9, r2)
-// end WITH_TAINT_TRACKING
-    SET_VREG(r0, r9)                    @ vA<- r0
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-    /*
-     * Trivial test succeeded, save and bail.
-     *  r9 holds A
-     */
-.LOP_INSTANCE_OF_trivial:
-    mov     r0, #1                      @ indicate success
-    @ could b OP_INSTANCE_OF_store, but copying is faster and cheaper
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r9, r2)
-// end WITH_TAINT_TRACKING
-    SET_VREG(r0, r9)                    @ vA<- r0
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-    /*
-     * Resolution required.  This is the least-likely path.
-     *
-     *  r3 holds BBBB
-     *  r9 holds A
-     */
-.LOP_INSTANCE_OF_resolve:
-    EXPORT_PC()                         @ resolve() could throw
-    ldr     r0, [rSELF, #offThread_method]    @ r0<- self->method
-    mov     r1, r3                      @ r1<- BBBB
-    mov     r2, #1                      @ r2<- true
-    ldr     r0, [r0, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveClass             @ r0<- resolved ClassObject ptr
-    cmp     r0, #0                      @ got null?
-    beq     common_exceptionThrown      @ yes, handle exception
-    mov     r1, r0                      @ r1<- class resolved from BBB
-    mov     r3, rINST, lsr #12          @ r3<- B
-    GET_VREG(r0, r3)                    @ r0<- vB (object)
-    ldr     r0, [r0, #offObject_clazz]  @ r0<- obj->clazz
-    b       .LOP_INSTANCE_OF_resolved        @ pick up where we left off
-
-/* continuation for OP_NEW_INSTANCE */
-
-    .balign 32                          @ minimize cache lines
-.LOP_NEW_INSTANCE_finish: @ r0=new object
-    mov     r3, rINST, lsr #8           @ r3<- AA
-    cmp     r0, #0                      @ failed?
-#if defined(WITH_JIT)
-    /*
-     * The JIT needs the class to be fully resolved before it can
-     * include this instruction in a trace.
-     */
-    ldrh    r1, [rSELF, #offThread_subMode]
-    beq     common_exceptionThrown      @ yes, handle the exception
-    ands    r1, #kSubModeJitTraceBuild  @ under construction?
-    bne     .LOP_NEW_INSTANCE_jitCheck
-#else
-    beq     common_exceptionThrown      @ yes, handle the exception
-#endif
-.LOP_NEW_INSTANCE_end:
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r1)
-    SET_VREG_TAINT(r1, r3, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r3)                    @ vAA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-#if defined(WITH_JIT)
-    /*
-     * Check to see if we need to stop the trace building early.
-     * r0: new object
-     * r3: vAA
-     */
-.LOP_NEW_INSTANCE_jitCheck:
-    ldr     r1, [r10]                   @ reload resolved class
-    cmp     r1, #0                      @ okay?
-    bne     .LOP_NEW_INSTANCE_end             @ yes, finish
-    mov     r9, r0                      @ preserve new object
-    mov     r10, r3                     @ preserve vAA
-    mov     r0, rSELF
-    mov     r1, rPC
-    bl      dvmJitEndTraceSelect        @ (self, pc)
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    SET_TAINT_CLEAR(r1)
-    SET_VREG_TAINT(r1, r10, r2)
-// end WITH_TAINT_TRACKING
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r9, r10)                   @ vAA<- new object
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-#endif
-
-    /*
-     * Class initialization required.
-     *
-     *  r0 holds class object
-     */
-.LOP_NEW_INSTANCE_needinit:
-    mov     r9, r0                      @ save r0
-    bl      dvmInitClass                @ initialize class
-    cmp     r0, #0                      @ check boolean result
-    mov     r0, r9                      @ restore r0
-    bne     .LOP_NEW_INSTANCE_initialized     @ success, continue
-    b       common_exceptionThrown      @ failed, deal with init exception
-
-    /*
-     * Resolution required.  This is the least-likely path.
-     *
-     *  r1 holds BBBB
-     */
-.LOP_NEW_INSTANCE_resolve:
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    mov     r2, #0                      @ r2<- false
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveClass             @ r0<- resolved ClassObject ptr
-    cmp     r0, #0                      @ got null?
-    bne     .LOP_NEW_INSTANCE_resolved        @ no, continue
-    b       common_exceptionThrown      @ yes, handle exception
-
-/* continuation for OP_NEW_ARRAY */
-
-
-    /*
-     * Resolve class.  (This is an uncommon case.)
-     *
-     *  r1 holds array length
-     *  r2 holds class ref CCCC
-     */
-.LOP_NEW_ARRAY_resolve:
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    mov     r9, r1                      @ r9<- length (save)
-    mov     r1, r2                      @ r1<- CCCC
-    mov     r2, #0                      @ r2<- false
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveClass             @ r0<- call(clazz, ref)
-    cmp     r0, #0                      @ got null?
-    mov     r1, r9                      @ r1<- length (restore)
-    beq     common_exceptionThrown      @ yes, handle exception
-    @ fall through to OP_NEW_ARRAY_finish
-
-    /*
-     * Finish allocation.
-     *
-     *  r0 holds class
-     *  r1 holds array length
-     */
-.LOP_NEW_ARRAY_finish:
-    mov     r2, #ALLOC_DONT_TRACK       @ don't track in local refs table
-    bl      dvmAllocArrayByClass        @ r0<- call(clazz, length, flags)
-    cmp     r0, #0                      @ failed?
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    beq     common_exceptionThrown      @ yes, handle the exception
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r2, r2, #15                 @ r2<- A
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_TAINT_CLEAR(r3)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ vA<- r0
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_FILLED_NEW_ARRAY */
-
-    /*
-     * On entry:
-     *  r0 holds array class
-     *  r10 holds AA or BA
-     */
-.LOP_FILLED_NEW_ARRAY_continue:
-    ldr     r3, [r0, #offClassObject_descriptor] @ r3<- arrayClass->descriptor
-    mov     r2, #ALLOC_DONT_TRACK       @ r2<- alloc flags
-    ldrb    rINST, [r3, #1]             @ rINST<- descriptor[1]
-    .if     0
-    mov     r1, r10                     @ r1<- AA (length)
-    .else
-    mov     r1, r10, lsr #4             @ r1<- B (length)
-    .endif
-    cmp     rINST, #'I'                 @ array of ints?
-    cmpne   rINST, #'L'                 @ array of objects?
-    cmpne   rINST, #'['                 @ array of arrays?
-    mov     r9, r1                      @ save length in r9
-    bne     .LOP_FILLED_NEW_ARRAY_notimpl         @ no, not handled yet
-    bl      dvmAllocArrayByClass        @ r0<- call(arClass, length, flags)
-    cmp     r0, #0                      @ null return?
-    beq     common_exceptionThrown      @ alloc failed, handle exception
-
-    FETCH(r1, 2)                        @ r1<- FEDC or CCCC
-    str     r0, [rSELF, #offThread_retval]      @ retval.l <- new array
-    str     rINST, [rSELF, #offThread_retval+4] @ retval.h <- type
-// begin WITH_TAINT_TRACKING
-    add     r2, r0, #offArrayObject_taint
-// end WITH_TAINT_TRACKING
-    add     r0, r0, #offArrayObject_contents @ r0<- newArray->contents
-    subs    r9, r9, #1                  @ length--, check for neg
-    FETCH_ADVANCE_INST(3)               @ advance to next instr, load rINST
-    bmi     2f                          @ was zero, bail
-
-    @ copy values from registers into the array
-    @ r0=array, r1=CCCC/FEDC, r9=length (from AA or B), r10=AA/BA
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_CLEAR(r3)
-    str     r3, [rSELF, #offThread_rtaint]    @ rtaint <- clear
-    str     r3, [r2]
-// end WITH_TAINT_TRACKING
-    .if     0
-//begin WITH_TAINT_TRACKING
-    add     r9, r9, #1
-    add     r2, rFP, r1, lsl #3         @ r2<- &fp[CCCC]
-1:  ldr     r3, [r2], #4                @ r3<- *r2++
-    subs    r9, r9, #1                  @ count--
-    str     r3, [r0], #4                @ *contents++ = vX
-    add     r2, r2, #4                  @ skip taint tag TODO fixme?
-//end WITH_TAINT_TRACKING
-    bpl     1b
-    @ continue at 2
-    .else
-    cmp     r9, #4                      @ length was initially 5?
-    and     r2, r10, #15                @ r2<- A
-    bne     1f                          @ <= 4 args, branch
-    GET_VREG(r3, r2)                    @ r3<- vA
-    sub     r9, r9, #1                  @ count--
-    str     r3, [r0, #16]               @ contents[4] = vA
-1:  and     r2, r1, #15                 @ r2<- F/E/D/C
-    GET_VREG(r3, r2)                    @ r3<- vF/vE/vD/vC
-    mov     r1, r1, lsr #4              @ r1<- next reg in low 4
-    subs    r9, r9, #1                  @ count--
-    str     r3, [r0], #4                @ *contents++ = vX
-    bpl     1b
-    @ continue at 2
-    .endif
-
-2:
-    ldr     r0, [rSELF, #offThread_retval]     @ r0<- object
-    ldr     r1, [rSELF, #offThread_retval+4]   @ r1<- type
-    ldr     r2, [rSELF, #offThread_cardTable]  @ r2<- card table base
-    GET_INST_OPCODE(ip)                      @ ip<- opcode from rINST
-    cmp     r1, #'I'                         @ Is int array?
-    strneb  r2, [r2, r0, lsr #GC_CARD_SHIFT] @ Mark card based on object head
-    GOTO_OPCODE(ip)                          @ execute it
-
-    /*
-     * Throw an exception indicating that we have not implemented this
-     * mode of filled-new-array.
-     */
-.LOP_FILLED_NEW_ARRAY_notimpl:
-    ldr     r0, .L_strFilledNewArrayNotImpl_OP_FILLED_NEW_ARRAY
-3:  add     r0, pc
-    bl      dvmThrowInternalError
-    b       common_exceptionThrown
-
-    /*
-     * Ideally we'd only define this once, but depending on layout we can
-     * exceed the range of the load above.
-     */
-
-.L_strFilledNewArrayNotImpl_OP_FILLED_NEW_ARRAY:
-    .word   PCREL_REF(.LstrFilledNewArrayNotImpl,3b)
-
-/* continuation for OP_FILLED_NEW_ARRAY_RANGE */
-
-    /*
-     * On entry:
-     *  r0 holds array class
-     *  r10 holds AA or BA
-     */
-.LOP_FILLED_NEW_ARRAY_RANGE_continue:
-    ldr     r3, [r0, #offClassObject_descriptor] @ r3<- arrayClass->descriptor
-    mov     r2, #ALLOC_DONT_TRACK       @ r2<- alloc flags
-    ldrb    rINST, [r3, #1]             @ rINST<- descriptor[1]
-    .if     1
-    mov     r1, r10                     @ r1<- AA (length)
-    .else
-    mov     r1, r10, lsr #4             @ r1<- B (length)
-    .endif
-    cmp     rINST, #'I'                 @ array of ints?
-    cmpne   rINST, #'L'                 @ array of objects?
-    cmpne   rINST, #'['                 @ array of arrays?
-    mov     r9, r1                      @ save length in r9
-    bne     .LOP_FILLED_NEW_ARRAY_RANGE_notimpl         @ no, not handled yet
-    bl      dvmAllocArrayByClass        @ r0<- call(arClass, length, flags)
-    cmp     r0, #0                      @ null return?
-    beq     common_exceptionThrown      @ alloc failed, handle exception
-
-    FETCH(r1, 2)                        @ r1<- FEDC or CCCC
-    str     r0, [rSELF, #offThread_retval]      @ retval.l <- new array
-    str     rINST, [rSELF, #offThread_retval+4] @ retval.h <- type
-// begin WITH_TAINT_TRACKING
-    add     r2, r0, #offArrayObject_taint
-// end WITH_TAINT_TRACKING
-    add     r0, r0, #offArrayObject_contents @ r0<- newArray->contents
-    subs    r9, r9, #1                  @ length--, check for neg
-    FETCH_ADVANCE_INST(3)               @ advance to next instr, load rINST
-    bmi     2f                          @ was zero, bail
-
-    @ copy values from registers into the array
-    @ r0=array, r1=CCCC/FEDC, r9=length (from AA or B), r10=AA/BA
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_CLEAR(r3)
-    str     r3, [rSELF, #offThread_rtaint]    @ rtaint <- clear
-    str     r3, [r2]
-// end WITH_TAINT_TRACKING
-    .if     1
-//begin WITH_TAINT_TRACKING
-    add     r9, r9, #1
-    add     r2, rFP, r1, lsl #3         @ r2<- &fp[CCCC]
-1:  ldr     r3, [r2], #4                @ r3<- *r2++
-    subs    r9, r9, #1                  @ count--
-    str     r3, [r0], #4                @ *contents++ = vX
-    add     r2, r2, #4                  @ skip taint tag TODO fixme?
-//end WITH_TAINT_TRACKING
-    bpl     1b
-    @ continue at 2
-    .else
-    cmp     r9, #4                      @ length was initially 5?
-    and     r2, r10, #15                @ r2<- A
-    bne     1f                          @ <= 4 args, branch
-    GET_VREG(r3, r2)                    @ r3<- vA
-    sub     r9, r9, #1                  @ count--
-    str     r3, [r0, #16]               @ contents[4] = vA
-1:  and     r2, r1, #15                 @ r2<- F/E/D/C
-    GET_VREG(r3, r2)                    @ r3<- vF/vE/vD/vC
-    mov     r1, r1, lsr #4              @ r1<- next reg in low 4
-    subs    r9, r9, #1                  @ count--
-    str     r3, [r0], #4                @ *contents++ = vX
-    bpl     1b
-    @ continue at 2
-    .endif
-
-2:
-    ldr     r0, [rSELF, #offThread_retval]     @ r0<- object
-    ldr     r1, [rSELF, #offThread_retval+4]   @ r1<- type
-    ldr     r2, [rSELF, #offThread_cardTable]  @ r2<- card table base
-    GET_INST_OPCODE(ip)                      @ ip<- opcode from rINST
-    cmp     r1, #'I'                         @ Is int array?
-    strneb  r2, [r2, r0, lsr #GC_CARD_SHIFT] @ Mark card based on object head
-    GOTO_OPCODE(ip)                          @ execute it
-
-    /*
-     * Throw an exception indicating that we have not implemented this
-     * mode of filled-new-array.
-     */
-.LOP_FILLED_NEW_ARRAY_RANGE_notimpl:
-    ldr     r0, .L_strFilledNewArrayNotImpl_OP_FILLED_NEW_ARRAY_RANGE
-3:  add     r0, pc
-    bl      dvmThrowInternalError
-    b       common_exceptionThrown
-
-    /*
-     * Ideally we'd only define this once, but depending on layout we can
-     * exceed the range of the load above.
-     */
-
-.L_strFilledNewArrayNotImpl_OP_FILLED_NEW_ARRAY_RANGE:
-    .word   PCREL_REF(.LstrFilledNewArrayNotImpl,3b)
-
-/* continuation for OP_CMPL_FLOAT */
-.LOP_CMPL_FLOAT_finish:
-    SET_VREG(r0, r9)                    @ vAA<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_TAINT_CLEAR(r0)
-    SET_VREG_TAINT(r0, r9, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-/* continuation for OP_CMPG_FLOAT */
-.LOP_CMPG_FLOAT_finish:
-    SET_VREG(r0, r9)                    @ vAA<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_TAINT_CLEAR(r0)
-    SET_VREG_TAINT(r0, r9, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-/* continuation for OP_CMPL_DOUBLE */
-.LOP_CMPL_DOUBLE_finish:
-    fmstat                              @ export status flags
-    movgt   r0, #1                      @ (greater than) r1<- 1
-    moveq   r0, #0                      @ (equal) r1<- 0
-    SET_VREG(r0, r9)                    @ vAA<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_TAINT_CLEAR(r0)
-    SET_VREG_TAINT(r0, r9, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-/* continuation for OP_CMPG_DOUBLE */
-.LOP_CMPG_DOUBLE_finish:
-    fmstat                              @ export status flags
-    mvnmi   r0, #0                      @ (less than) r1<- -1
-    moveq   r0, #0                      @ (equal) r1<- 0
-    SET_VREG(r0, r9)                    @ vAA<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_TAINT_CLEAR(r0)
-    SET_VREG_TAINT(r0, r9, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-/* continuation for OP_CMP_LONG */
-
-.LOP_CMP_LONG_less:
-    mvn     r1, #0                      @ r1<- -1
-    @ Want to cond code the next mov so we can avoid branch, but don't see it;
-    @ instead, we just replicate the tail end.
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r1, r9)                    @ vAA<- r1
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r0)
-    SET_TAINT_CLEAR(r1)
-    SET_VREG_TAINT(r1, r9, r0)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_CMP_LONG_greater:
-    mov     r1, #1                      @ r1<- 1
-    @ fall through to _finish
-
-.LOP_CMP_LONG_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r1, r9)                    @ vAA<- r1
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r0)
-    SET_TAINT_CLEAR(r1)
-    SET_VREG_TAINT(r1, r9, r0)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-cmp_long_taint_prop:
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r3, [r3, #8]
-    bx      lr
-
-/* continuation for OP_AGET */
-
-.LOP_AGET_taint_prop_1:
-    ldr	    r2, [r0, #offArrayObject_taint]
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    orr	    r2, r3, r2                  @ r2<- r2 | r1
-    bx	    lr
-
-.LOP_AGET_taint_prop_2:
-    bcs     common_errArrayIndex        @ index >= length, bail
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r2, r9, r3)
-    bx      lr
-
-/* continuation for OP_AGET_WIDE */
-
-.LOP_AGET_WIDE_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-    ldrd    r0, [r0, #offArrayObject_contents]  @ r0/r1<- vBB[vCC]
-    mov     r2, r1
-    mov     r1, r10
-    mov     r3, r10
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    stmia   r9, {r0-r3}                 @ vAA/vAA+1<- r2/r3
-// begin WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_AGET_WIDE_taint_prop:
-    ldr     r2, [r0, #offArrayObject_taint]
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r10, r3, r10)
-    orr     r10, r10, r2                @ r10<- r10 | r1
-    bx      lr
-
-/* continuation for OP_AGET_OBJECT */
-
-.LOP_AGET_OBJECT_taint_prop_1:
-    ldr	    r2, [r0, #offArrayObject_taint]
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    orr	    r2, r3, r2                  @ r2<- r2 | r1
-    bx	    lr
-
-.LOP_AGET_OBJECT_taint_prop_2:
-    bcs     common_errArrayIndex        @ index >= length, bail
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r2, r9, r3)
-    bx      lr
-
-/* continuation for OP_AGET_BOOLEAN */
-
-.LOP_AGET_BOOLEAN_taint_prop_1:
-    ldr	    r2, [r0, #offArrayObject_taint]
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    orr	    r2, r3, r2                  @ r2<- r2 | r1
-    bx	    lr
-
-.LOP_AGET_BOOLEAN_taint_prop_2:
-    bcs     common_errArrayIndex        @ index >= length, bail
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r2, r9, r3)
-    bx      lr
-
-/* continuation for OP_AGET_BYTE */
-
-.LOP_AGET_BYTE_taint_prop_1:
-    ldr	    r2, [r0, #offArrayObject_taint]
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    orr	    r2, r3, r2                  @ r2<- r2 | r1
-    bx	    lr
-
-.LOP_AGET_BYTE_taint_prop_2:
-    bcs     common_errArrayIndex        @ index >= length, bail
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r2, r9, r3)
-    bx      lr
-
-/* continuation for OP_AGET_CHAR */
-
-.LOP_AGET_CHAR_taint_prop_1:
-    ldr	    r2, [r0, #offArrayObject_taint]
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    orr	    r2, r3, r2                  @ r2<- r2 | r1
-    bx	    lr
-
-.LOP_AGET_CHAR_taint_prop_2:
-    bcs     common_errArrayIndex        @ index >= length, bail
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r2, r9, r3)
-    bx      lr
-
-/* continuation for OP_AGET_SHORT */
-
-.LOP_AGET_SHORT_taint_prop_1:
-    ldr	    r2, [r0, #offArrayObject_taint]
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    orr	    r2, r3, r2                  @ r2<- r2 | r1
-    bx	    lr
-
-.LOP_AGET_SHORT_taint_prop_2:
-    bcs     common_errArrayIndex        @ index >= length, bail
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r2, r9, r3)
-    bx      lr
-
-/* continuation for OP_APUT */
-
-.LOP_APUT_taint_prop:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- vBB (array object)
-    ldr     r2, [r1, #offArrayObject_taint]
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r3, r9, r3)
-    orr     r2, r2, r3                  @ r2<- r2 | r3
-    str     r2, [r1, #offArrayObject_taint]
-    bx      lr
-
-/* continuation for OP_APUT_WIDE */
-
-.LOP_APUT_WIDE_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-//    ldmia   r9, {r2-r3}                 @ r2/r3<- vAA/vAA+1
-    ldr     r2, [r9, #0]
-    ldr     r3, [r9, #8]
-    ldr     r1, [r9, #4]                      @ r1<- array taint
-    ldr     r9, [r10, #offArrayObject_taint]
-    orr     r1, r1, r9                        @ r1<- r1 | r9
-    str     r1, [r10, #offArrayObject_taint]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    strd    r2, [r0, #offArrayObject_contents]  @ r2/r3<- vBB[vCC]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_APUT_OBJECT */
-    /*
-     * On entry:
-     *  rINST = vBB (arrayObj)
-     *  r9 = vAA (obj)
-     *  r10 = offset into array (vBB + vCC * width)
-     */
-.LOP_APUT_OBJECT_finish:
-// begin WITH_TAINT_TRACKING
-    str     r2, [rINST, #offArrayObject_taint]
-// end WITH_TAINT_TRACKING
-    cmp     r9, #0                      @ storing null reference?
-    beq     .LOP_APUT_OBJECT_skip_check      @ yes, skip type checks
-    ldr     r0, [r9, #offObject_clazz]  @ r0<- obj->clazz
-    ldr     r1, [rINST, #offObject_clazz]  @ r1<- arrayObj->clazz
-    bl      dvmCanPutArrayElement       @ test object type vs. array type
-    cmp     r0, #0                      @ okay?
-    beq     .LOP_APUT_OBJECT_throw           @ no
-    mov     r1, rINST                   @ r1<- arrayObj
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    ldr     r2, [rSELF, #offThread_cardTable]     @ get biased CT base
-    add     r10, #offArrayObject_contents   @ r0<- pointer to slot
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    str     r9, [r10]                   @ vBB[vCC]<- vAA
-    strb    r2, [r2, r1, lsr #GC_CARD_SHIFT] @ mark card using object head
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-.LOP_APUT_OBJECT_skip_check:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    str     r9, [r10, #offArrayObject_contents] @ vBB[vCC]<- vAA
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-.LOP_APUT_OBJECT_throw:
-    @ The types don't match.  We need to throw an ArrayStoreException.
-    ldr     r0, [r9, #offObject_clazz]
-    ldr     r1, [rINST, #offObject_clazz]
-    EXPORT_PC()
-    bl      dvmThrowArrayStoreExceptionIncompatibleElement
-    b       common_exceptionThrown
-
-.LOP_APUT_OBJECT_taint_prop_1:
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r2, r9, r3)
-    bx      lr
-
-.LOP_APUT_OBJECT_taint_prop_2:
-    ldr     r3, [rINST, #offArrayObject_taint]
-    orr     r2, r2, r3                  @ r2<- r2 | r3
-    bx      lr
-
-/* continuation for OP_APUT_BOOLEAN */
-
-.LOP_APUT_BOOLEAN_taint_prop:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- vBB (array object)
-    ldr     r2, [r1, #offArrayObject_taint]
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r3, r9, r3)
-    orr     r2, r2, r3                  @ r2<- r2 | r3
-    str     r2, [r1, #offArrayObject_taint]
-    bx      lr
-
-/* continuation for OP_APUT_BYTE */
-
-.LOP_APUT_BYTE_taint_prop:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- vBB (array object)
-    ldr     r2, [r1, #offArrayObject_taint]
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r3, r9, r3)
-    orr     r2, r2, r3                  @ r2<- r2 | r3
-    str     r2, [r1, #offArrayObject_taint]
-    bx      lr
-
-/* continuation for OP_APUT_CHAR */
-
-.LOP_APUT_CHAR_taint_prop:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- vBB (array object)
-    ldr     r2, [r1, #offArrayObject_taint]
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r3, r9, r3)
-    orr     r2, r2, r3                  @ r2<- r2 | r3
-    str     r2, [r1, #offArrayObject_taint]
-    bx      lr
-
-/* continuation for OP_APUT_SHORT */
-
-.LOP_APUT_SHORT_taint_prop:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_VREG(r1, r2)                    @ r1<- vBB (array object)
-    ldr     r2, [r1, #offArrayObject_taint]
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r3, r9, r3)
-    orr     r2, r2, r3                  @ r2<- r2 | r3
-    str     r2, [r1, #offArrayObject_taint]
-    bx      lr
-
-/* continuation for OP_IGET */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_finish:
-    @bl      common_squeak0
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-    ldr   r0, [r9, r3]                @ r0<- obj.field (8/16/32 bits)
-    add     r3, r3, #4
-    ldr	    r3, [r9, r3]
-    orr     r3, r3, r10
-// end WITH_TAINT_TRACKING
-    ubfx    r2, rINST, #8, #4           @ r2<- A
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IGET_WIDE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_WIDE_finish:
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-    ldrd    r0, [r9, r3]                @ r0/r1<- obj.field (64-bit align ok)
-    add     r3, r3, #8
-    ldr     r3, [r9, r3]
-    orr	    r10, r3, r10
-    ubfx    r2, rINST, #8, #4           @ r2<- A
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    add     r3, rFP, r2, lsl #3         @ r3<- &fp[A]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r3, {r0-r1}                 @ fp[A]<- r0/r1
-    str    r0, [r3, #0]
-    str    r10, [r3, #4]
-    str    r1, [r3, #8]
-    str    r10, [r3, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_WIDE_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IGET_OBJECT */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_OBJECT_finish:
-    @bl      common_squeak0
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r0, r9, r3                  @ r0<- address of field
-//    bl      dvmQuasiAtomicRead64        @ r0/r1<- value/taint
-//    orr	    r3, r1, r10
-//    .else
-    ldr   r0, [r9, r3]                @ r0<- obj.field (8/16/32 bits)
-    @ no-op                             @ acquiring load
-    add     r3, r3, #4
-    ldr	    r3, [r9, r3]
-    orr     r3, r3, r10
-//    .endif
-// end WITH_TAINT_TRACKING
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r2, r2, #15                 @ r2<- A
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_OBJECT_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IGET_BOOLEAN */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_BOOLEAN_finish:
-    @bl      common_squeak1
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r0, r9, r3                  @ r0<- address of field
-//    bl      dvmQuasiAtomicRead64        @ r0/r1<- value/taint
-//    orr	    r3, r1, r10
-//    .else
-    ldr   r0, [r9, r3]                @ r0<- obj.field (8/16/32 bits)
-    @ no-op                             @ acquiring load
-    add     r3, r3, #4
-    ldr	    r3, [r9, r3]
-    orr     r3, r3, r10
-//    .endif
-// end WITH_TAINT_TRACKING
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r2, r2, #15                 @ r2<- A
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_BOOLEAN_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IGET_BYTE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_BYTE_finish:
-    @bl      common_squeak2
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r0, r9, r3                  @ r0<- address of field
-//    bl      dvmQuasiAtomicRead64        @ r0/r1<- value/taint
-//    orr	    r3, r1, r10
-//    .else
-    ldr   r0, [r9, r3]                @ r0<- obj.field (8/16/32 bits)
-    @ no-op                             @ acquiring load
-    add     r3, r3, #4
-    ldr	    r3, [r9, r3]
-    orr     r3, r3, r10
-//    .endif
-// end WITH_TAINT_TRACKING
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r2, r2, #15                 @ r2<- A
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_BYTE_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IGET_CHAR */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_CHAR_finish:
-    @bl      common_squeak3
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r0, r9, r3                  @ r0<- address of field
-//    bl      dvmQuasiAtomicRead64        @ r0/r1<- value/taint
-//    orr	    r3, r1, r10
-//    .else
-    ldr   r0, [r9, r3]                @ r0<- obj.field (8/16/32 bits)
-    @ no-op                             @ acquiring load
-    add     r3, r3, #4
-    ldr	    r3, [r9, r3]
-    orr     r3, r3, r10
-//    .endif
-// end WITH_TAINT_TRACKING
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r2, r2, #15                 @ r2<- A
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_CHAR_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IGET_SHORT */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_SHORT_finish:
-    @bl      common_squeak4
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r0, r9, r3                  @ r0<- address of field
-//    bl      dvmQuasiAtomicRead64        @ r0/r1<- value/taint
-//    orr	    r3, r1, r10
-//    .else
-    ldr   r0, [r9, r3]                @ r0<- obj.field (8/16/32 bits)
-    @ no-op                             @ acquiring load
-    add     r3, r3, #4
-    ldr	    r3, [r9, r3]
-    orr     r3, r3, r10
-//    .endif
-// end WITH_TAINT_TRACKING
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r2, r2, #15                 @ r2<- A
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_SHORT_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IPUT */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_finish:
-    @bl      common_squeak0
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    ubfx    r1, rINST, #8, #4           @ r1<- A
-    cmp     r9, #0                      @ check object for null
-    GET_VREG(r0, r1)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r1, r2)
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
-// begin WITH_TAINT_TRACKING
-    add	    r3, r3, #4
-    str	    r10, [r9, r3]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_IPUT_WIDE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_WIDE_finish:
-    ubfx    r2, rINST, #8, #4           @ r2<- A
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-// begin WITH_TAINT_TRACKING
-    add     r2, rFP, r2, lsl #3         @ r3<- &fp[A]
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- fp[A]
-    ldr	    r0, [r2, #0]
-    ldr     r1, [r2, #8]
-    ldr	    r10, [r2, #4]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    strd    r0, [r9, r3]                @ obj.field (64 bits, aligned)<- r0/r1
-// begin WITH_TAINT_TRACKING
-    add	    r3, r3, #8
-    str	    r10, [r9, r3]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_IPUT_OBJECT */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_OBJECT_finish:
-    @bl      common_squeak0
-    mov     r1, rINST, lsr #8           @ r1<- A+
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    and     r1, r1, #15                 @ r1<- A
-    cmp     r9, #0                      @ check object for null
-    GET_VREG(r0, r1)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r1, r2)
-    ldr     r11, [rSELF, #offThread_cardTable]  @ r11<- card table base
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    @ no-op                         @ releasing store
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r2, r9, r3                  @ r2<- target address
-//    mov     r1, r10                     @ r1<-taint
-//    bl      dvmQuasiAtomicSwap64        @ stores r0/r1 into addr r2
-//    .else
-    str     r0, [r9, r3]                @ obj.field (32 bits)<- r0
-    add     r3, r3, #4
-    str     r10, [r9, r3]
-//    .endif
-    @ no-op 
-    cmp     r0, #0                      @ stored a null reference?
-    strneb  r11, [r11, r9, lsr #GC_CARD_SHIFT]  @ mark card if not
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_IPUT_BOOLEAN */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_BOOLEAN_finish:
-    @bl      common_squeak1
-    mov     r1, rINST, lsr #8           @ r1<- A+
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    and     r1, r1, #15                 @ r1<- A
-    cmp     r9, #0                      @ check object for null
-    GET_VREG(r0, r1)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r1, r2)
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    @ no-op                         @ releasing store
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r2, r9, r3                  @ r2<- target address
-//    mov	    r1, r10                     @ r1<-taint
-//    bl      dvmQuasiAtomicSwap64        @ stores r0/r1 into addr r2
-//    .else
-    str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
-    add	    r3, r3, #4
-    str	    r10, [r9, r3]
-//    .endif
-// end WITH_TAINT_TRACKING
-    @ no-op 
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_IPUT_BYTE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_BYTE_finish:
-    @bl      common_squeak2
-    mov     r1, rINST, lsr #8           @ r1<- A+
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    and     r1, r1, #15                 @ r1<- A
-    cmp     r9, #0                      @ check object for null
-    GET_VREG(r0, r1)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r1, r2)
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    @ no-op                         @ releasing store
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r2, r9, r3                  @ r2<- target address
-//    mov	    r1, r10                     @ r1<-taint
-//    bl      dvmQuasiAtomicSwap64        @ stores r0/r1 into addr r2
-//    .else
-    str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
-    add	    r3, r3, #4
-    str	    r10, [r9, r3]
-//    .endif
-// end WITH_TAINT_TRACKING
-    @ no-op 
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_IPUT_CHAR */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_CHAR_finish:
-    @bl      common_squeak3
-    mov     r1, rINST, lsr #8           @ r1<- A+
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    and     r1, r1, #15                 @ r1<- A
-    cmp     r9, #0                      @ check object for null
-    GET_VREG(r0, r1)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r1, r2)
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    @ no-op                         @ releasing store
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r2, r9, r3                  @ r2<- target address
-//    mov	    r1, r10                     @ r1<-taint
-//    bl      dvmQuasiAtomicSwap64        @ stores r0/r1 into addr r2
-//    .else
-    str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
-    add	    r3, r3, #4
-    str	    r10, [r9, r3]
-//    .endif
-// end WITH_TAINT_TRACKING
-    @ no-op 
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_IPUT_SHORT */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_SHORT_finish:
-    @bl      common_squeak4
-    mov     r1, rINST, lsr #8           @ r1<- A+
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    and     r1, r1, #15                 @ r1<- A
-    cmp     r9, #0                      @ check object for null
-    GET_VREG(r0, r1)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r1, r2)
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    @ no-op                         @ releasing store
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add     r2, r9, r3                  @ r2<- target address
-//    mov	    r1, r10                     @ r1<-taint
-//    bl      dvmQuasiAtomicSwap64        @ stores r0/r1 into addr r2
-//    .else
-    str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
-    add	    r3, r3, #4
-    str	    r10, [r9, r3]
-//    .endif
-// end WITH_TAINT_TRACKING
-    @ no-op 
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_SGET */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SGET_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_finish
-
-
-.LOP_SGET_taint_prop:
-//    .if     0
-//    add     r0, r0, #offStaticField_value		@ r0<- address of field
-//    bl      dvmQuasiAtomicRead32SfieldTaint		@ r0/r1<- value/taint
-//    .else
-    ldr	    r1, [r0, #offStaticField_taint] @ r1<- taint value
-    ldr     r0, [r0, #offStaticField_value] @ r0<- field value
-    @ no-op                             @ acquiring load
-//    .endif
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r1, r2, r3)
-    bx      lr
-
-/* continuation for OP_SGET_WIDE */
-
-.LOP_SGET_WIDE_finish:
-    mov     r9, rINST, lsr #8           @ r9<- AA
-// begin WITH_TAINT_TRACKING
-    ldr	    r3, [r0, #offStaticField_taint] @ r3<- taint value
-    .if 0
-    stmfd   sp!, {r3}                   @ ANDOW?
-    add     r0, r0, #offStaticField_value @ r0<- pointer to data
-    bl      dvmQuasiAtomicRead64        @ r0/r1<- contents of field
-    ldmfd   sp!, {r3}                   @ ANDOW?
-    .else
-    ldrd    r0, [r0, #offStaticField_value] @ r0/r1<- field value (aligned)
-    .endif
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-//    stmia   r9, {r2-r3}                 @ vAA/vAA+1<- r2/r3
-    str	    r0, [r9, #0]
-    str	    r3, [r9, #4]
-    str	    r1, [r9, #8]
-    str	    r3, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     *
-     * Returns StaticField pointer in r0.
-     */
-.LOP_SGET_WIDE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r1<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_WIDE_finish          @ resume
-
-/* continuation for OP_SGET_OBJECT */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SGET_OBJECT_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_OBJECT_finish
-
-
-.LOP_SGET_OBJECT_taint_prop:
-//    .if     0
-//    add     r0, r0, #offStaticField_value		@ r0<- address of field
-//    bl      dvmQuasiAtomicRead32SfieldTaint		@ r0/r1<- value/taint
-//    .else
-    ldr	    r1, [r0, #offStaticField_taint] @ r1<- taint value
-    ldr     r0, [r0, #offStaticField_value] @ r0<- field value
-    @ no-op                             @ acquiring load
-//    .endif
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r1, r2, r3)
-    bx      lr
-
-/* continuation for OP_SGET_BOOLEAN */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SGET_BOOLEAN_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_BOOLEAN_finish
-
-
-.LOP_SGET_BOOLEAN_taint_prop:
-//    .if     0
-//    add     r0, r0, #offStaticField_value		@ r0<- address of field
-//    bl      dvmQuasiAtomicRead32SfieldTaint		@ r0/r1<- value/taint
-//    .else
-    ldr	    r1, [r0, #offStaticField_taint] @ r1<- taint value
-    ldr     r0, [r0, #offStaticField_value] @ r0<- field value
-    @ no-op                             @ acquiring load
-//    .endif
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r1, r2, r3)
-    bx      lr
-
-/* continuation for OP_SGET_BYTE */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SGET_BYTE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_BYTE_finish
-
-
-.LOP_SGET_BYTE_taint_prop:
-//    .if     0
-//    add     r0, r0, #offStaticField_value		@ r0<- address of field
-//    bl      dvmQuasiAtomicRead32SfieldTaint		@ r0/r1<- value/taint
-//    .else
-    ldr	    r1, [r0, #offStaticField_taint] @ r1<- taint value
-    ldr     r0, [r0, #offStaticField_value] @ r0<- field value
-    @ no-op                             @ acquiring load
-//    .endif
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r1, r2, r3)
-    bx      lr
-
-/* continuation for OP_SGET_CHAR */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SGET_CHAR_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_CHAR_finish
-
-
-.LOP_SGET_CHAR_taint_prop:
-//    .if     0
-//    add     r0, r0, #offStaticField_value		@ r0<- address of field
-//    bl      dvmQuasiAtomicRead32SfieldTaint		@ r0/r1<- value/taint
-//    .else
-    ldr	    r1, [r0, #offStaticField_taint] @ r1<- taint value
-    ldr     r0, [r0, #offStaticField_value] @ r0<- field value
-    @ no-op                             @ acquiring load
-//    .endif
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r1, r2, r3)
-    bx      lr
-
-/* continuation for OP_SGET_SHORT */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SGET_SHORT_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_SHORT_finish
-
-
-.LOP_SGET_SHORT_taint_prop:
-//    .if     0
-//    add     r0, r0, #offStaticField_value		@ r0<- address of field
-//    bl      dvmQuasiAtomicRead32SfieldTaint		@ r0/r1<- value/taint
-//    .else
-    ldr	    r1, [r0, #offStaticField_taint] @ r1<- taint value
-    ldr     r0, [r0, #offStaticField_value] @ r0<- field value
-    @ no-op                             @ acquiring load
-//    .endif
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r1, r2, r3)
-    bx      lr
-
-/* continuation for OP_SPUT */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SPUT_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_finish          @ resume
-
-
-.LOP_SPUT_taint_prop:
-//    .if     0
-//    add     r3, r0, #offStaticField_value   @ r3<- addr
-//    mov     r0, r1                          @ r0<- val
-//    mov     r1, r3                          @ r1<- addr
-//    SET_TAINT_FP(r3)
-//    GET_VREG_TAINT(r2, r2, r3)              @ r2<- taint
-//    bl      dvmQuasiAtomicSwap32SfieldTaint
-//    .else
-    @ no-op                        	    @ releasing store
-    str     r1, [r0, #offStaticField_value] @ field<- vAA
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r2, r3)
-    str	    r1, [r0, #offStaticField_taint]
-    @ no-op 
-//    .endif
-    bx      lr
-
-/* continuation for OP_SPUT_WIDE */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r9:  &fp[AA]
-     *  r10: dvmDex->pResFields
-     *
-     * Returns StaticField pointer in r2.
-     */
-.LOP_SPUT_WIDE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    mov     r2, r0                      @ copy to r2
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_WIDE_finish          @ resume
-
-.LOP_SPUT_WIDE_taint_prop:
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr r3, [r9, #4]
-    ldr r0, [r9, #0]
-    ldr r1, [r9, #8]
-    bx      lr
-
-/* continuation for OP_SPUT_OBJECT */
-
-
-.LOP_SPUT_OBJECT_end:
-// begin WITH_TAINT_TRACKING
-//    .if     0
-//    add	    r2, r0, #offStaticField_value       @ r2<- addr
-//    mov	    r0, r1                              @ r0<- val
-//    mov	    r1, r2                              @ r1<- addr
-//    mov	    r2, r3                              @ r2<- taint
-//    bl      dvmQuasiAtomicSwap32SfieldTaint
-//    cmp     r0, #0                    	        @ stored a null object?
-//    .else
-    str     r1, [r0, #offStaticField_value] @ field<- vAA
-    str	    r3, [r0, #offStaticField_taint]
-//    @ no-op 
-    cmp     r1, #0                              @ stored a null object?
-//    .endif
-//    strneb  r2, [r2, r9, lsr #GC_CARD_SHIFT]  @ mark card based on obj head
-    strneb  r10, [r10, r9, lsr #GC_CARD_SHIFT]  @ mark card based on obj head
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-    /* Continuation if the field has not yet been resolved.
-     * r1:  BBBB field ref
-     * r10: dvmDex->pResFields
-     */
-.LOP_SPUT_OBJECT_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_OBJECT_finish          @ resume
-
-/* continuation for OP_SPUT_BOOLEAN */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SPUT_BOOLEAN_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_BOOLEAN_finish          @ resume
-
-
-.LOP_SPUT_BOOLEAN_taint_prop:
-//    .if     0
-//    add     r3, r0, #offStaticField_value   @ r3<- addr
-//    mov     r0, r1                          @ r0<- val
-//    mov     r1, r3                          @ r1<- addr
-//    SET_TAINT_FP(r3)
-//    GET_VREG_TAINT(r2, r2, r3)              @ r2<- taint
-//    bl      dvmQuasiAtomicSwap32SfieldTaint
-//    .else
-    @ no-op                        	    @ releasing store
-    str     r1, [r0, #offStaticField_value] @ field<- vAA
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r2, r3)
-    str	    r1, [r0, #offStaticField_taint]
-    @ no-op 
-//    .endif
-    bx      lr
-
-/* continuation for OP_SPUT_BYTE */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SPUT_BYTE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_BYTE_finish          @ resume
-
-
-.LOP_SPUT_BYTE_taint_prop:
-//    .if     0
-//    add     r3, r0, #offStaticField_value   @ r3<- addr
-//    mov     r0, r1                          @ r0<- val
-//    mov     r1, r3                          @ r1<- addr
-//    SET_TAINT_FP(r3)
-//    GET_VREG_TAINT(r2, r2, r3)              @ r2<- taint
-//    bl      dvmQuasiAtomicSwap32SfieldTaint
-//    .else
-    @ no-op                        	    @ releasing store
-    str     r1, [r0, #offStaticField_value] @ field<- vAA
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r2, r3)
-    str	    r1, [r0, #offStaticField_taint]
-    @ no-op 
-//    .endif
-    bx      lr
-
-/* continuation for OP_SPUT_CHAR */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SPUT_CHAR_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_CHAR_finish          @ resume
-
-
-.LOP_SPUT_CHAR_taint_prop:
-//    .if     0
-//    add     r3, r0, #offStaticField_value   @ r3<- addr
-//    mov     r0, r1                          @ r0<- val
-//    mov     r1, r3                          @ r1<- addr
-//    SET_TAINT_FP(r3)
-//    GET_VREG_TAINT(r2, r2, r3)              @ r2<- taint
-//    bl      dvmQuasiAtomicSwap32SfieldTaint
-//    .else
-    @ no-op                        	    @ releasing store
-    str     r1, [r0, #offStaticField_value] @ field<- vAA
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r2, r3)
-    str	    r1, [r0, #offStaticField_taint]
-    @ no-op 
-//    .endif
-    bx      lr
-
-/* continuation for OP_SPUT_SHORT */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SPUT_SHORT_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_SHORT_finish          @ resume
-
-
-.LOP_SPUT_SHORT_taint_prop:
-//    .if     0
-//    add     r3, r0, #offStaticField_value   @ r3<- addr
-//    mov     r0, r1                          @ r0<- val
-//    mov     r1, r3                          @ r1<- addr
-//    SET_TAINT_FP(r3)
-//    GET_VREG_TAINT(r2, r2, r3)              @ r2<- taint
-//    bl      dvmQuasiAtomicSwap32SfieldTaint
-//    .else
-    @ no-op                        	    @ releasing store
-    str     r1, [r0, #offStaticField_value] @ field<- vAA
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r2, r3)
-    str	    r1, [r0, #offStaticField_taint]
-    @ no-op 
-//    .endif
-    bx      lr
-
-/* continuation for OP_INVOKE_VIRTUAL */
-
-    /*
-     * At this point:
-     *  r0 = resolved base method
-     *  r10 = C or CCCC (index of first arg, which is the "this" ptr)
-     */
-.LOP_INVOKE_VIRTUAL_continue:
-    GET_VREG(r9, r10)                   @ r9<- "this" ptr
-    ldrh    r2, [r0, #offMethod_methodIndex]    @ r2<- baseMethod->methodIndex
-    cmp     r9, #0                      @ is "this" null?
-    beq     common_errNullObject        @ null "this", throw exception
-    ldr     r3, [r9, #offObject_clazz]  @ r3<- thisPtr->clazz
-    ldr     r3, [r3, #offClassObject_vtable]    @ r3<- thisPtr->clazz->vtable
-    ldr     r0, [r3, r2, lsl #2]        @ r3<- vtable[methodIndex]
-    bl      common_invokeMethodNoRange @ (r0=method, r9="this")
-
-/* continuation for OP_INVOKE_SUPER */
-
-    /*
-     * At this point:
-     *  r0 = resolved base method
-     *  r10 = method->clazz
-     */
-.LOP_INVOKE_SUPER_continue:
-    ldr     r1, [r10, #offClassObject_super]    @ r1<- method->clazz->super
-    ldrh    r2, [r0, #offMethod_methodIndex]    @ r2<- baseMethod->methodIndex
-    ldr     r3, [r1, #offClassObject_vtableCount]   @ r3<- super->vtableCount
-    EXPORT_PC()                         @ must export for invoke
-    cmp     r2, r3                      @ compare (methodIndex, vtableCount)
-    bcs     .LOP_INVOKE_SUPER_nsm             @ method not present in superclass
-    ldr     r1, [r1, #offClassObject_vtable]    @ r1<- ...clazz->super->vtable
-    ldr     r0, [r1, r2, lsl #2]        @ r3<- vtable[methodIndex]
-    bl      common_invokeMethodNoRange @ continue on
-
-.LOP_INVOKE_SUPER_resolve:
-    mov     r0, r10                     @ r0<- method->clazz
-    mov     r2, #METHOD_VIRTUAL         @ resolver method type
-    bl      dvmResolveMethod            @ r0<- call(clazz, ref, flags)
-    cmp     r0, #0                      @ got null?
-    bne     .LOP_INVOKE_SUPER_continue        @ no, continue
-    b       common_exceptionThrown      @ yes, handle exception
-
-    /*
-     * Throw a NoSuchMethodError with the method name as the message.
-     *  r0 = resolved base method
-     */
-.LOP_INVOKE_SUPER_nsm:
-    ldr     r1, [r0, #offMethod_name]   @ r1<- method name
-    b       common_errNoSuchMethod
-
-/* continuation for OP_INVOKE_DIRECT */
-
-    /*
-     * On entry:
-     *  r1 = reference (BBBB or CCCC)
-     *  r10 = "this" register
-     */
-.LOP_INVOKE_DIRECT_resolve:
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    mov     r2, #METHOD_DIRECT          @ resolver method type
-    bl      dvmResolveMethod            @ r0<- call(clazz, ref, flags)
-    cmp     r0, #0                      @ got null?
-    bne     .LOP_INVOKE_DIRECT_finish          @ no, continue
-    b       common_exceptionThrown      @ yes, handle exception
-
-/* continuation for OP_INVOKE_STATIC */
-
-
-.LOP_INVOKE_STATIC_resolve:
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    mov     r2, #METHOD_STATIC          @ resolver method type
-    bl      dvmResolveMethod            @ r0<- call(clazz, ref, flags)
-    cmp     r0, #0                      @ got null?
-#if defined(WITH_JIT)
-    /*
-     * Check to see if we're actively building a trace.  If so,
-     * we need to keep this instruction out of it.
-     * r10: &resolved_methodToCall
-     */
-    ldrh    r2, [rSELF, #offThread_subMode]
-    beq     common_exceptionThrown            @ null, handle exception
-    ands    r2, #kSubModeJitTraceBuild        @ trace under construction?
-    beq     common_invokeMethodNoRange     @ no (r0=method, r9="this")
-    ldr     r1, [r10]                         @ reload resolved method
-    cmp     r1, #0                            @ finished resolving?
-    bne     common_invokeMethodNoRange     @ yes (r0=method, r9="this")
-    mov     r10, r0                           @ preserve method
-    mov     r0, rSELF
-    mov     r1, rPC
-    bl      dvmJitEndTraceSelect              @ (self, pc)
-    mov     r0, r10
-    b       common_invokeMethodNoRange     @ whew, finally!
-#else
-    bne     common_invokeMethodNoRange     @ (r0=method, r9="this")
-    b       common_exceptionThrown            @ yes, handle exception
-#endif
-
-/* continuation for OP_INVOKE_VIRTUAL_RANGE */
-
-    /*
-     * At this point:
-     *  r0 = resolved base method
-     *  r10 = C or CCCC (index of first arg, which is the "this" ptr)
-     */
-.LOP_INVOKE_VIRTUAL_RANGE_continue:
-    GET_VREG(r9, r10)                   @ r9<- "this" ptr
-    ldrh    r2, [r0, #offMethod_methodIndex]    @ r2<- baseMethod->methodIndex
-    cmp     r9, #0                      @ is "this" null?
-    beq     common_errNullObject        @ null "this", throw exception
-    ldr     r3, [r9, #offObject_clazz]  @ r3<- thisPtr->clazz
-    ldr     r3, [r3, #offClassObject_vtable]    @ r3<- thisPtr->clazz->vtable
-    ldr     r0, [r3, r2, lsl #2]        @ r3<- vtable[methodIndex]
-    bl      common_invokeMethodRange @ (r0=method, r9="this")
-
-/* continuation for OP_INVOKE_SUPER_RANGE */
-
-    /*
-     * At this point:
-     *  r0 = resolved base method
-     *  r10 = method->clazz
-     */
-.LOP_INVOKE_SUPER_RANGE_continue:
-    ldr     r1, [r10, #offClassObject_super]    @ r1<- method->clazz->super
-    ldrh    r2, [r0, #offMethod_methodIndex]    @ r2<- baseMethod->methodIndex
-    ldr     r3, [r1, #offClassObject_vtableCount]   @ r3<- super->vtableCount
-    EXPORT_PC()                         @ must export for invoke
-    cmp     r2, r3                      @ compare (methodIndex, vtableCount)
-    bcs     .LOP_INVOKE_SUPER_RANGE_nsm             @ method not present in superclass
-    ldr     r1, [r1, #offClassObject_vtable]    @ r1<- ...clazz->super->vtable
-    ldr     r0, [r1, r2, lsl #2]        @ r3<- vtable[methodIndex]
-    bl      common_invokeMethodRange @ continue on
-
-.LOP_INVOKE_SUPER_RANGE_resolve:
-    mov     r0, r10                     @ r0<- method->clazz
-    mov     r2, #METHOD_VIRTUAL         @ resolver method type
-    bl      dvmResolveMethod            @ r0<- call(clazz, ref, flags)
-    cmp     r0, #0                      @ got null?
-    bne     .LOP_INVOKE_SUPER_RANGE_continue        @ no, continue
-    b       common_exceptionThrown      @ yes, handle exception
-
-    /*
-     * Throw a NoSuchMethodError with the method name as the message.
-     *  r0 = resolved base method
-     */
-.LOP_INVOKE_SUPER_RANGE_nsm:
-    ldr     r1, [r0, #offMethod_name]   @ r1<- method name
-    b       common_errNoSuchMethod
-
-/* continuation for OP_INVOKE_DIRECT_RANGE */
-
-    /*
-     * On entry:
-     *  r1 = reference (BBBB or CCCC)
-     *  r10 = "this" register
-     */
-.LOP_INVOKE_DIRECT_RANGE_resolve:
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    mov     r2, #METHOD_DIRECT          @ resolver method type
-    bl      dvmResolveMethod            @ r0<- call(clazz, ref, flags)
-    cmp     r0, #0                      @ got null?
-    bne     .LOP_INVOKE_DIRECT_RANGE_finish          @ no, continue
-    b       common_exceptionThrown      @ yes, handle exception
-
-/* continuation for OP_INVOKE_STATIC_RANGE */
-
-
-.LOP_INVOKE_STATIC_RANGE_resolve:
-    ldr     r3, [rSELF, #offThread_method] @ r3<- self->method
-    ldr     r0, [r3, #offMethod_clazz]  @ r0<- method->clazz
-    mov     r2, #METHOD_STATIC          @ resolver method type
-    bl      dvmResolveMethod            @ r0<- call(clazz, ref, flags)
-    cmp     r0, #0                      @ got null?
-#if defined(WITH_JIT)
-    /*
-     * Check to see if we're actively building a trace.  If so,
-     * we need to keep this instruction out of it.
-     * r10: &resolved_methodToCall
-     */
-    ldrh    r2, [rSELF, #offThread_subMode]
-    beq     common_exceptionThrown            @ null, handle exception
-    ands    r2, #kSubModeJitTraceBuild        @ trace under construction?
-    beq     common_invokeMethodRange     @ no (r0=method, r9="this")
-    ldr     r1, [r10]                         @ reload resolved method
-    cmp     r1, #0                            @ finished resolving?
-    bne     common_invokeMethodRange     @ yes (r0=method, r9="this")
-    mov     r10, r0                           @ preserve method
-    mov     r0, rSELF
-    mov     r1, rPC
-    bl      dvmJitEndTraceSelect              @ (self, pc)
-    mov     r0, r10
-    b       common_invokeMethodRange     @ whew, finally!
-#else
-    bne     common_invokeMethodRange     @ (r0=method, r9="this")
-    b       common_exceptionThrown            @ yes, handle exception
-#endif
-
-/* continuation for OP_NEG_LONG */
-
-.LOP_NEG_LONG_finish:
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-11 instructions */
-
-/* continuation for OP_NOT_LONG */
-
-.LOP_NOT_LONG_finish:
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-11 instructions */
-
-/* continuation for OP_NEG_DOUBLE */
-
-.LOP_NEG_DOUBLE_finish:
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-11 instructions */
-
-/* continuation for OP_INT_TO_LONG */
-
-.LOP_INT_TO_LONG_finish:
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vA/vA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 9-10 instructions */
-
-/* continuation for OP_LONG_TO_DOUBLE */
-
-.LOP_LONG_TO_DOUBLE_finish:
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-11 instructions */
-
-/* continuation for OP_FLOAT_TO_LONG */
-
-.LOP_FLOAT_TO_LONG_finish:
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vA/vA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 9-10 instructions */
-
-/* continuation for OP_FLOAT_TO_LONG */
-/*
- * Convert the float in r0 to a long in r0/r1.
- *
- * We have to clip values to long min/max per the specification.  The
- * expected common case is a "reasonable" value that converts directly
- * to modest integer.  The EABI convert function isn't doing this for us.
- */
-f2l_doconv:
-    stmfd   sp!, {r4, lr}
-    mov     r1, #0x5f000000             @ (float)maxlong
-    mov     r4, r0
-    bl      __aeabi_fcmpge              @ is arg >= maxlong?
-    cmp     r0, #0                      @ nonzero == yes
-    mvnne   r0, #0                      @ return maxlong (7fffffff)
-    mvnne   r1, #0x80000000
-    ldmnefd sp!, {r4, pc}
-
-    mov     r0, r4                      @ recover arg
-    mov     r1, #0xdf000000             @ (float)minlong
-    bl      __aeabi_fcmple              @ is arg <= minlong?
-    cmp     r0, #0                      @ nonzero == yes
-    movne   r0, #0                      @ return minlong (80000000)
-    movne   r1, #0x80000000
-    ldmnefd sp!, {r4, pc}
-
-    mov     r0, r4                      @ recover arg
-    mov     r1, r4
-    bl      __aeabi_fcmpeq              @ is arg == self?
-    cmp     r0, #0                      @ zero == no
-    moveq   r1, #0                      @ return zero for NaN
-    ldmeqfd sp!, {r4, pc}
-
-    mov     r0, r4                      @ recover arg
-    bl      __aeabi_f2lz                @ convert float to long
-    ldmfd   sp!, {r4, pc}
-
-/* continuation for OP_DOUBLE_TO_LONG */
-
-.LOP_DOUBLE_TO_LONG_finish:
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-    /* 10-11 instructions */
-
-/* continuation for OP_DOUBLE_TO_LONG */
-/*
- * Convert the double in r0/r1 to a long in r0/r1.
- *
- * We have to clip values to long min/max per the specification.  The
- * expected common case is a "reasonable" value that converts directly
- * to modest integer.  The EABI convert function isn't doing this for us.
- */
-d2l_doconv:
-    stmfd   sp!, {r4, r5, lr}           @ save regs
-    mov     r3, #0x43000000             @ maxlong, as a double (high word)
-    add     r3, #0x00e00000             @  0x43e00000
-    mov     r2, #0                      @ maxlong, as a double (low word)
-    sub     sp, sp, #4                  @ align for EABI
-    mov     r4, r0                      @ save a copy of r0
-    mov     r5, r1                      @  and r1
-    bl      __aeabi_dcmpge              @ is arg >= maxlong?
-    cmp     r0, #0                      @ nonzero == yes
-    mvnne   r0, #0                      @ return maxlong (7fffffffffffffff)
-    mvnne   r1, #0x80000000
-    bne     1f
-
-    mov     r0, r4                      @ recover arg
-    mov     r1, r5
-    mov     r3, #0xc3000000             @ minlong, as a double (high word)
-    add     r3, #0x00e00000             @  0xc3e00000
-    mov     r2, #0                      @ minlong, as a double (low word)
-    bl      __aeabi_dcmple              @ is arg <= minlong?
-    cmp     r0, #0                      @ nonzero == yes
-    movne   r0, #0                      @ return minlong (8000000000000000)
-    movne   r1, #0x80000000
-    bne     1f
-
-    mov     r0, r4                      @ recover arg
-    mov     r1, r5
-    mov     r2, r4                      @ compare against self
-    mov     r3, r5
-    bl      __aeabi_dcmpeq              @ is arg == self?
-    cmp     r0, #0                      @ zero == no
-    moveq   r1, #0                      @ return zero for NaN
-    beq     1f
-
-    mov     r0, r4                      @ recover arg
-    mov     r1, r5
-    bl      __aeabi_d2lz                @ convert double to long
-
-1:
-    add     sp, sp, #4
-    ldmfd   sp!, {r4, r5, pc}
-
-/* continuation for OP_ADD_INT */
-
-.LOP_ADD_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_SUB_INT */
-
-.LOP_SUB_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_MUL_INT */
-
-.LOP_MUL_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_DIV_INT */
-
-.LOP_DIV_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_REM_INT */
-
-.LOP_REM_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_AND_INT */
-
-.LOP_AND_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_OR_INT */
-
-.LOP_OR_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_XOR_INT */
-
-.LOP_XOR_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_SHL_INT */
-
-.LOP_SHL_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_SHR_INT */
-
-.LOP_SHR_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_USHR_INT */
-
-.LOP_USHR_INT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_ADD_LONG */
-
-.LOP_ADD_LONG_taint_prop:
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    stmfd   sp!, {r9}
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_SUB_LONG */
-
-.LOP_SUB_LONG_taint_prop:
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    stmfd   sp!, {r9}
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_MUL_LONG */
-
-.LOP_MUL_LONG_finish:
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r0, {r9-r10}                @ vAA/vAA+1<- r9/r10
-    str     r9, [r0, #0]
-    str     r10, [r0, #8]
-    str     r10, [r0, #12]
-    ldmfd   sp!, {r10}
-    str     r10, [r0, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-mul_long_taint_prop:
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    stmfd   sp!, {r10}
-    bx      lr
-
-/* continuation for OP_DIV_LONG */
-
-.LOP_DIV_LONG_taint_prop:
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    stmfd   sp!, {r9}
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_REM_LONG */
-
-.LOP_REM_LONG_taint_prop:
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    stmfd   sp!, {r9}
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_AND_LONG */
-
-.LOP_AND_LONG_taint_prop:
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    stmfd   sp!, {r9}
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_OR_LONG */
-
-.LOP_OR_LONG_taint_prop:
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    stmfd   sp!, {r9}
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_XOR_LONG */
-
-.LOP_XOR_LONG_taint_prop:
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    stmfd   sp!, {r9}
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_SHL_LONG */
-
-.LOP_SHL_LONG_finish:
-    mov     r0, r0, asl r2              @  r0<- r0 << r2
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-shl_long_taint_prop:
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[BB]
-    GET_VREG(r2, r0)                    @ r2<- vCC
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r0, r0, r1)
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r1, [r3, #4]
-    orr     r10, r0, r1
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    and     r2, r2, #63                 @ r2<- r2 & 0x3f
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    bx      lr
-
-/* continuation for OP_SHR_LONG */
-
-.LOP_SHR_LONG_finish:
-    mov     r1, r1, asr r2              @  r1<- r1 >> r2
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-shr_long_taint_prop:
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[BB]
-    GET_VREG(r2, r0)                    @ r2<- vCC
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r0, r0, r1)
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r1, [r3, #4]
-    orr     r10, r0, r1
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    and     r2, r2, #63                 @ r2<- r2 & 0x3f
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    bx      lr
-
-/* continuation for OP_USHR_LONG */
-
-.LOP_USHR_LONG_finish:
-    mov     r1, r1, lsr r2              @  r1<- r1 >>> r2
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-ushr_long_taint_prop:
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[BB]
-    GET_VREG(r2, r0)                    @ r2<- vCC
-    SET_TAINT_FP(r1)
-    GET_VREG_TAINT(r0, r0, r1)
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r1, [r3, #4]
-    orr     r10, r0, r1
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    and     r2, r2, #63                 @ r0<- r0 & 0x3f
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    bx      lr
-
-/* continuation for OP_ADD_FLOAT */
-
-.LOP_ADD_FLOAT_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    fadds   s2, s0, s1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vAA
-    fsts    s2, [r9]                    @ vAA<- s2
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-/* continuation for OP_SUB_FLOAT */
-
-.LOP_SUB_FLOAT_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    fsubs   s2, s0, s1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vAA
-    fsts    s2, [r9]                    @ vAA<- s2
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-/* continuation for OP_MUL_FLOAT */
-
-.LOP_MUL_FLOAT_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    fmuls   s2, s0, s1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vAA
-    fsts    s2, [r9]                    @ vAA<- s2
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-/* continuation for OP_DIV_FLOAT */
-
-.LOP_DIV_FLOAT_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    fdivs   s2, s0, s1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vAA
-    fsts    s2, [r9]                    @ vAA<- s2
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-/* continuation for OP_REM_FLOAT */
-
-.LOP_REM_FLOAT_taint_prop:
-    SET_TAINT_FP(r10)
-    GET_VREG_TAINT(r3, r3, r10)
-    GET_VREG_TAINT(r2, r2, r10)
-    orr     r2, r3, r2
-    SET_VREG_TAINT(r2, r9, r10)
-    bx      lr
-
-/* continuation for OP_ADD_DOUBLE */
-
-.LOP_ADD_DOUBLE_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    faddd   d2, d0, d1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vAA
-// begin WITH_TAINT_TRACKING
-//    fstd    d2, [r9]                    @ vAA<- d2
-    fsts    s4, [r9]
-    fsts    s5, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_SUB_DOUBLE */
-
-.LOP_SUB_DOUBLE_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    fsubd   d2, d0, d1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vAA
-// begin WITH_TAINT_TRACKING
-//    fstd    d2, [r9]                    @ vAA<- d2
-    fsts    s4, [r9]
-    fsts    s5, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_MUL_DOUBLE */
-
-.LOP_MUL_DOUBLE_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    fmuld   d2, d0, d1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vAA
-// begin WITH_TAINT_TRACKING
-//    fstd    d2, [r9]                    @ vAA<- d2
-    fsts    s4, [r9]
-    fsts    s5, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_DIV_DOUBLE */
-
-.LOP_DIV_DOUBLE_finish:
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    fdivd   d2, d0, d1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    VREG_INDEX_TO_ADDR(r9, r9)          @ r9<- &vAA
-// begin WITH_TAINT_TRACKING
-//    fstd    d2, [r9]                    @ vAA<- d2
-    fsts    s4, [r9]
-    fsts    s5, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_REM_DOUBLE */
-
-.LOP_REM_DOUBLE_taint_prop:
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    stmfd   sp!, {r9}
-    add     r2, rFP, r2, lsl #3         @ r2<- &fp[BB]
-    add     r3, rFP, r3, lsl #3         @ r3<- &fp[CC]
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- vBB/vBB+1
-    ldr     r0, [r2, #0]
-    ldr     r9, [r2, #4]
-    ldr     r1, [r2, #8]
-//    ldmia   r3, {r2-r3}                 @ r2/r3<- vCC/vCC+1
-    ldr     r2, [r3, #0]
-    ldr     r10, [r3, #4]
-    ldr     r3, [r3, #8]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_ADD_INT_2ADDR */
-
-.LOP_ADD_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_SUB_INT_2ADDR */
-
-.LOP_SUB_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_MUL_INT_2ADDR */
-
-.LOP_MUL_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_DIV_INT_2ADDR */
-
-.LOP_DIV_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_REM_INT_2ADDR */
-
-.LOP_REM_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_AND_INT_2ADDR */
-
-.LOP_AND_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_OR_INT_2ADDR */
-
-.LOP_OR_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_XOR_INT_2ADDR */
-
-.LOP_XOR_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_SHL_INT_2ADDR */
-
-.LOP_SHL_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_SHR_INT_2ADDR */
-
-.LOP_SHR_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_USHR_INT_2ADDR */
-
-.LOP_USHR_INT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_ADD_LONG_2ADDR */
-
-.LOP_ADD_LONG_2ADDR_taint_prop:
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r10, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    stmfd   sp!, {r9}
-    ldr     r9, [r9, #4]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_SUB_LONG_2ADDR */
-
-.LOP_SUB_LONG_2ADDR_taint_prop:
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r10, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    stmfd   sp!, {r9}
-    ldr     r9, [r9, #4]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_MUL_LONG_2ADDR */
-
-mul_long_2addr_taint_prop:
-    ubfx    r9, rINST, #8, #4           @ r9<- A
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     rINST, rFP, r9, lsl #3      @ rINST<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r9, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   rINST, {r0-r1}              @ r0/r1<- vAA/vAA+1
-    ldr     r0, [rINST, #0]
-    ldr     r10, [rINST, #4]
-    ldr     r1, [rINST, #8]
-    orr     r10, r9, r10
-    stmfd   sp!, {r10}
-    mul     ip, r2, r1                  @  ip<- ZxW
-    bx      lr
-
-/* continuation for OP_DIV_LONG_2ADDR */
-
-.LOP_DIV_LONG_2ADDR_taint_prop:
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r10, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    stmfd   sp!, {r9}
-    ldr     r9, [r9, #4]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_REM_LONG_2ADDR */
-
-.LOP_REM_LONG_2ADDR_taint_prop:
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r10, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    stmfd   sp!, {r9}
-    ldr     r9, [r9, #4]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_AND_LONG_2ADDR */
-
-.LOP_AND_LONG_2ADDR_taint_prop:
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r10, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    stmfd   sp!, {r9}
-    ldr     r9, [r9, #4]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_OR_LONG_2ADDR */
-
-.LOP_OR_LONG_2ADDR_taint_prop:
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r10, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    stmfd   sp!, {r9}
-    ldr     r9, [r9, #4]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_XOR_LONG_2ADDR */
-
-.LOP_XOR_LONG_2ADDR_taint_prop:
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r10, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    stmfd   sp!, {r9}
-    ldr     r9, [r9, #4]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_SHL_LONG_2ADDR */
-
-.LOP_SHL_LONG_2ADDR_finish:
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-shl_long_2addr_taint_prop:
-    SET_TAINT_FP(r0)
-    GET_VREG_TAINT(r0, r3, r0)
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-    and     r2, r2, #63                 @ r2<- r2 & 0x3f
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r10, [r9, #4]
-    orr     r10, r0, r10
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    bx      lr
-
-/* continuation for OP_SHR_LONG_2ADDR */
-
-.LOP_SHR_LONG_2ADDR_finish:
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-// OP_SHR_LONG_2ADDR.S
-shr_long_2addr_taint_prop:
-    SET_TAINT_FP(r0)
-    GET_VREG_TAINT(r0, r3, r0)
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-    and     r2, r2, #63                 @ r2<- r2 & 0x3f
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r10, [r9, #4]
-    orr     r10, r0, r10
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    bx      lr
-
-/* continuation for OP_USHR_LONG_2ADDR */
-
-.LOP_USHR_LONG_2ADDR_finish:
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r9, {r0-r1}                 @ vAA/vAA+1<- r0/r1
-    str     r0, [r9, #0]
-    str     r10, [r9, #4]
-    str     r1, [r9, #8]
-    str     r10, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-ushr_long_2addr_taint_prop:
-    SET_TAINT_FP(r0)
-    GET_VREG_TAINT(r0, r3, r0)
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-    and     r2, r2, #63                 @ r2<- r2 & 0x3f
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r10, [r9, #4]
-    orr     r10, r0, r10
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    bx      lr
-
-/* continuation for OP_ADD_FLOAT_2ADDR */
-
-.LOP_ADD_FLOAT_2ADDR_finish:
-    fadds   s2, s0, s1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    fsts    s2, [r9]                    @ vAA<- s2
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_SUB_FLOAT_2ADDR */
-
-.LOP_SUB_FLOAT_2ADDR_finish:
-    fsubs   s2, s0, s1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    fsts    s2, [r9]                    @ vAA<- s2
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_MUL_FLOAT_2ADDR */
-
-.LOP_MUL_FLOAT_2ADDR_finish:
-    fmuls   s2, s0, s1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    fsts    s2, [r9]                    @ vAA<- s2
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_DIV_FLOAT_2ADDR */
-
-.LOP_DIV_FLOAT_2ADDR_finish:
-    fdivs   s2, s0, s1                              @ s2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    fsts    s2, [r9]                    @ vAA<- s2
-// begin WITH_TAINT_TRACKING
-    str     r0, [r9, #4]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_REM_FLOAT_2ADDR */
-
-.LOP_REM_FLOAT_2ADDR_taint_prop:
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r3, r3, r2)
-    GET_VREG_TAINT(r10, r9, r2)
-    orr     r10, r3, r10
-    SET_VREG_TAINT(r10, r9, r2)
-    bx      lr
-
-/* continuation for OP_ADD_DOUBLE_2ADDR */
-
-.LOP_ADD_DOUBLE_2ADDR_finish:
-    faddd   d2, d0, d1                              @ d2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    orr    r0, r0, r1
-//    fstd    d2, [r9]                    @ vAA<- d2
-    fsts    s4, [r9]
-    fsts    s5, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_SUB_DOUBLE_2ADDR */
-
-.LOP_SUB_DOUBLE_2ADDR_finish:
-    fsubd   d2, d0, d1                              @ d2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    orr    r0, r0, r1
-//    fstd    d2, [r9]                    @ vAA<- d2
-    fsts    s4, [r9]
-    fsts    s5, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_MUL_DOUBLE_2ADDR */
-
-.LOP_MUL_DOUBLE_2ADDR_finish:
-    fmuld   d2, d0, d1                              @ d2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    orr    r0, r0, r1
-//    fstd    d2, [r9]                    @ vAA<- d2
-    fsts    s4, [r9]
-    fsts    s5, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_DIV_DOUBLE_2ADDR */
-
-.LOP_DIV_DOUBLE_2ADDR_finish:
-    fdivd   d2, d0, d1                              @ d2<- op
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-    orr    r0, r0, r1
-//    fstd    d2, [r9]                    @ vAA<- d2
-    fsts    s4, [r9]
-    fsts    s5, [r9, #8]
-    str     r0, [r9, #4]
-    str     r0, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_REM_DOUBLE_2ADDR */
-
-.LOP_REM_DOUBLE_2ADDR_taint_prop:
-    add     r1, rFP, r1, lsl #3         @ r1<- &fp[B]
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[A]
-//    ldmia   r1, {r2-r3}                 @ r2/r3<- vBB/vBB+1
-    ldr     r2, [r1, #0]
-    ldr     r10, [r1, #4]
-    ldr     r3, [r1, #8]
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr     r0, [r9, #0]
-    ldr     r1, [r9, #8]
-    stmfd   sp!, {r9}
-    ldr     r9, [r9, #4]
-    orr     r10, r9, r10
-    ldmfd   sp!, {r9}
-    bx      lr
-
-/* continuation for OP_IGET_VOLATILE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_VOLATILE_finish:
-    @bl      common_squeak0
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-//    .if     1
-//    add     r0, r9, r3                  @ r0<- address of field
-//    bl      dvmQuasiAtomicRead64        @ r0/r1<- value/taint
-//    orr	    r3, r1, r10
-//    .else
-    ldr   r0, [r9, r3]                @ r0<- obj.field (8/16/32 bits)
-    SMP_DMB                            @ acquiring load
-    add     r3, r3, #4
-    ldr	    r3, [r9, r3]
-    orr     r3, r3, r10
-//    .endif
-// end WITH_TAINT_TRACKING
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r2, r2, #15                 @ r2<- A
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_VOLATILE_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IPUT_VOLATILE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_VOLATILE_finish:
-    @bl      common_squeak0
-    mov     r1, rINST, lsr #8           @ r1<- A+
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    and     r1, r1, #15                 @ r1<- A
-    cmp     r9, #0                      @ check object for null
-    GET_VREG(r0, r1)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r1, r2)
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SMP_DMB_ST                        @ releasing store
-// begin WITH_TAINT_TRACKING
-//    .if     1
-//    add     r2, r9, r3                  @ r2<- target address
-//    mov	    r1, r10                     @ r1<-taint
-//    bl      dvmQuasiAtomicSwap64        @ stores r0/r1 into addr r2
-//    .else
-    str  r0, [r9, r3]                @ obj.field (8/16/32 bits)<- r0
-    add	    r3, r3, #4
-    str	    r10, [r9, r3]
-//    .endif
-// end WITH_TAINT_TRACKING
-    SMP_DMB
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_SGET_VOLATILE */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SGET_VOLATILE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_VOLATILE_finish
-
-
-.LOP_SGET_VOLATILE_taint_prop:
-//    .if     1
-//    add     r0, r0, #offStaticField_value		@ r0<- address of field
-//    bl      dvmQuasiAtomicRead32SfieldTaint		@ r0/r1<- value/taint
-//    .else
-    ldr	    r1, [r0, #offStaticField_taint] @ r1<- taint value
-    ldr     r0, [r0, #offStaticField_value] @ r0<- field value
-    SMP_DMB                            @ acquiring load
-//    .endif
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r1, r2, r3)
-    bx      lr
-
-/* continuation for OP_SPUT_VOLATILE */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SPUT_VOLATILE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_VOLATILE_finish          @ resume
-
-
-.LOP_SPUT_VOLATILE_taint_prop:
-//    .if     1
-//    add     r3, r0, #offStaticField_value   @ r3<- addr
-//    mov     r0, r1                          @ r0<- val
-//    mov     r1, r3                          @ r1<- addr
-//    SET_TAINT_FP(r3)
-//    GET_VREG_TAINT(r2, r2, r3)              @ r2<- taint
-//    bl      dvmQuasiAtomicSwap32SfieldTaint
-//    .else
-    SMP_DMB_ST                        	    @ releasing store
-    str     r1, [r0, #offStaticField_value] @ field<- vAA
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r1, r2, r3)
-    str	    r1, [r0, #offStaticField_taint]
-    SMP_DMB
-//    .endif
-    bx      lr
-
-/* continuation for OP_IGET_OBJECT_VOLATILE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_OBJECT_VOLATILE_finish:
-    @bl      common_squeak0
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-// begin WITH_TAINT_TRACKING
-//    .if     1
-//    add     r0, r9, r3                  @ r0<- address of field
-//    bl      dvmQuasiAtomicRead64        @ r0/r1<- value/taint
-//    orr	    r3, r1, r10
-//    .else
-    ldr   r0, [r9, r3]                @ r0<- obj.field (8/16/32 bits)
-    SMP_DMB                            @ acquiring load
-    add     r3, r3, #4
-    ldr	    r3, [r9, r3]
-    orr     r3, r3, r10
-//    .endif
-// end WITH_TAINT_TRACKING
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    and     r2, r2, #15                 @ r2<- A
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SET_VREG(r0, r2)                    @ fp[A]<- r0
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r1)
-    SET_VREG_TAINT(r3, r2, r1)
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_OBJECT_VOLATILE_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IGET_WIDE_VOLATILE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IGET_WIDE_VOLATILE_finish:
-    cmp     r9, #0                      @ check object for null
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    beq     common_errNullObject        @ object was null
-    .if     1
-// begin WITH_TAINT_TRACKING
-    stmfd   sp!, {r3}
-    add     r0, r9, r3                  		@ r0<- address of field
-    bl      dvmQuasiAtomicRead64        @ r0/r1<- contents of field
-    ldmfd   sp!, {r3}
-    .else
-    ldrd    r0, [r9, r3]                @ r0/r1<- obj.field (64-bit align ok)
-    .endif
-    add     r3, r3, #8
-    ldr     r3, [r9, r3]
-    orr	    r10, r3, r10
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    and     r2, r2, #15                 @ r2<- A
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    add     r3, rFP, r2, lsl #3         @ r3<- &fp[A]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-// begin WITH_TAINT_TRACKING
-//    stmia   r3, {r0-r1}                 @ fp[A]<- r0/r1
-    str    r0, [r3, #0]
-    str    r10, [r3, #4]
-    str    r1, [r3, #8]
-    str    r10, [r3, #12]
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-.LOP_IGET_WIDE_VOLATILE_taint_prop:
-    GET_VREG(r9, r0)                    @ r9<- fp[B], the object pointer
-    SET_TAINT_FP(r3)
-    GET_VREG_TAINT(r10, r0, r3)
-    ldr     r0, [r2, r1, lsl #2]        @ r0<- resolved InstField ptr
-    bx      lr
-
-/* continuation for OP_IPUT_WIDE_VOLATILE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_WIDE_VOLATILE_finish:
-    mov     r2, rINST, lsr #8           @ r2<- A+
-    cmp     r9, #0                      @ check object for null
-    and     r2, r2, #15                 @ r2<- A
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-// begin WITH_TAINT_TRACKING
-    add     r2, rFP, r2, lsl #3         @ r3<- &fp[A]
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-// begin WITH_TAINT_TRACKING
-//    ldmia   r2, {r0-r1}                 @ r0/r1<- fp[A]
-    ldr	    r0, [r2, #0]
-    ldr     r1, [r2, #8]
-    ldr	    r10, [r2, #4]
-// end WITH_TAINT_TRACKING
-    .if     1
-    stmfd   sp!, {r3}                   @ ANDOW?
-    add     r2, r9, r3                  @ r2<- target address
-    bl      dvmQuasiAtomicSwap64Sync    @ stores r0/r1 into addr r2
-    ldmfd   sp!, {r3}                   @ ANDOW?
-    .else
-    strd    r0, [r9, r3]                @ obj.field (64 bits, aligned)<- r0/r1
-    .endif
-// begin WITH_TAINT_TRACKING
-    add	    r3, r3, #8
-    str	    r10, [r9, r3]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(r10)                @ extract opcode from rINST
-    GOTO_OPCODE(r10)                    @ jump to next instruction
-
-/* continuation for OP_SGET_WIDE_VOLATILE */
-
-.LOP_SGET_WIDE_VOLATILE_finish:
-    mov     r9, rINST, lsr #8           @ r9<- AA
-// begin WITH_TAINT_TRACKING
-    ldr	    r3, [r0, #offStaticField_taint] @ r3<- taint value
-    .if 1
-    stmfd   sp!, {r3}                   @ ANDOW?
-    add     r0, r0, #offStaticField_value @ r0<- pointer to data
-    bl      dvmQuasiAtomicRead64        @ r0/r1<- contents of field
-    ldmfd   sp!, {r3}                   @ ANDOW?
-    .else
-    ldrd    r0, [r0, #offStaticField_value] @ r0/r1<- field value (aligned)
-    .endif
-    add     r9, rFP, r9, lsl #3         @ r9<- &fp[AA]
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-//    stmia   r9, {r2-r3}                 @ vAA/vAA+1<- r2/r3
-    str	    r0, [r9, #0]
-    str	    r3, [r9, #4]
-    str	    r1, [r9, #8]
-    str	    r3, [r9, #12]
-// end WITH_TAINT_TRACKING
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     *
-     * Returns StaticField pointer in r0.
-     */
-.LOP_SGET_WIDE_VOLATILE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r1<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_WIDE_VOLATILE_finish          @ resume
-
-/* continuation for OP_SPUT_WIDE_VOLATILE */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r9:  &fp[AA]
-     *  r10: dvmDex->pResFields
-     *
-     * Returns StaticField pointer in r2.
-     */
-.LOP_SPUT_WIDE_VOLATILE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    mov     r2, r0                      @ copy to r2
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_WIDE_VOLATILE_finish          @ resume
-
-.LOP_SPUT_WIDE_VOLATILE_taint_prop:
-//    ldmia   r9, {r0-r1}                 @ r0/r1<- vAA/vAA+1
-    ldr r3, [r9, #4]
-    ldr r0, [r9, #0]
-    ldr r1, [r9, #8]
-    bx      lr
-
-/* continuation for OP_EXECUTE_INLINE */
-// end WITH_TAINT_TRACKING
-
-.LOP_EXECUTE_INLINE_resume:
-    add     r1, rSELF, #offThread_retval  @ r1<- &self->retval
-// begin WITH_TAINT_TRACKING
-//    sub     sp, sp, #8                  @ make room for arg, +64 bit align
-    sub     sp, sp, #4                  @ make room for arg, +64 bit align
-    mov     r0, rINST, lsr #12          @ r0<- B
-    str     r1, [sp]                    @ push &self->retval
-    add     r1, rSELF, #offThread_rtaint  @ r1< &self->rtaint
-    sub     sp, sp, #4			@ make room for arg,
-    str     r1, [sp]                    @ push &self->rtaint
-    bl      .LOP_EXECUTE_INLINE_continue        @ make call; will return after
-    add     sp, sp, #16                 @ pop stack 4x
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ test boolean result of inline
-    beq     common_exceptionThrown      @ returned false, handle exception
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-    /*
-     * Extract args, call function.
-     *  r0 = #of args (0-4)
-     *  r10 = call index
-     *  lr = return addr, above  [DO NOT bl out of here w/o preserving LR]
-     *
-     * Other ideas:
-     * - Use a jump table from the main piece to jump directly into the
-     *   AND/LDR pairs.  Costs a data load, saves a branch.
-     * - Have five separate pieces that do the loading, so we can work the
-     *   interleave a little better.  Increases code size.
-     */
-.LOP_EXECUTE_INLINE_continue:
-    rsb     r0, r0, #4                  @ r0<- 4-r0
-    FETCH(rINST, 2)                     @ rINST<- FEDC
-    add     pc, pc, r0, lsl #3          @ computed goto, 2 instrs each
-    bl      common_abort                @ (skipped due to ARM prefetch)
-// begin WITH_TAINT_TRACKING
-4:  and     ip, rINST, #0xf000          @ isolate F
-    ldr     r3, [rFP, ip, lsr #9]       @ r3<- vF (shift right 12, left 2)
-3:  and     ip, rINST, #0x0f00          @ isolate E
-    ldr     r2, [rFP, ip, lsr #5]       @ r2<- vE
-2:  and     ip, rINST, #0x00f0          @ isolate D
-    ldr     r1, [rFP, ip, lsr #1]       @ r1<- vD
-1:  and     ip, rINST, #0x000f          @ isolate C
-    ldr     r0, [rFP, ip, lsl #3]       @ r0<- vC
-0:
-// push arg0_taint and arg1_taint
-    SET_TAINT_FP(r11)
-    and     ip, rINST, #0x00f0          @ isolate D
-    ldr     ip, [r11, ip, lsr #1]       @ ip<-arg1_taint
-    sub     sp, sp, #4			@ make room for arg
-    str     ip, [sp]                    @ push arg1_taint
-    and     ip, rINST, #0x000f          @ isolate C
-    ldr     ip, [r11, ip, lsl #3]       @ ip<-arg0_taint
-    sub     sp, sp, #4			@ make room for arg
-    str     ip, [sp]                    @ push arg0_taint
-// end WITH_TAINT_TRACKING
-    ldr     rINST, .LOP_EXECUTE_INLINE_table    @ table of InlineOperation
-5:  add     rINST, pc
-    ldr     pc, [rINST, r10, lsl #4]    @ sizeof=16, "func" is first entry
-    @ (not reached)
-
-    /*
-     * We're debugging or profiling.
-     * r10: opIndex
-     */
-.LOP_EXECUTE_INLINE_debugmode:
-    mov     r0, r10
-    bl      dvmResolveInlineNative
-    cmp     r0, #0                      @ did it resolve?
-    beq     .LOP_EXECUTE_INLINE_resume          @ no, just move on
-    mov     r9, r0                      @ remember method
-    mov     r1, rSELF
-    bl      dvmFastMethodTraceEnter     @ (method, self)
-    add     r1, rSELF, #offThread_retval@ r1<- &self->retval
-// begin WITH_TAINT_TRACKING
-//    sub     sp, sp, #8                  @ make room for arg, +64 bit align
-    sub     sp, sp, #4                  @ make room for arg, +64 bit align
-    mov     r0, rINST, lsr #12          @ r0<- B
-    str     r1, [sp]                    @ push &self->retval
-    add     r1, rSELF, #offThread_rtaint  @ r1< &self->rtaint
-    sub     sp, sp, #4			@ make room for arg,
-    str     r1, [sp]                    @ push &self->rtaint
-// end WITH_TAINT_TRACKING
-    bl      .LOP_EXECUTE_INLINE_continue        @ make call; will return after
-    mov     rINST, r0                   @ save result of inline
-// begin WITH_TAINT_TRACKING
-//    add     sp, sp, #8                  @ pop stack
-    add     sp, sp, #16                 @ pop stack 4x
-// end WITH_TAINT_TRACKING
-    mov     r0, r9                      @ r0<- method
-    mov     r1, rSELF
-    bl      dvmFastNativeMethodTraceExit @ (method, self)
-    cmp     rINST, #0                   @ test boolean result of inline
-    beq     common_exceptionThrown      @ returned false, handle exception
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
-
-.LOP_EXECUTE_INLINE_table:
-    .word   PCREL_REF(gDvmInlineOpsTable,5b)
-
-/* continuation for OP_EXECUTE_INLINE_RANGE */
-// end WITH_TAINT_TRACKING
-
-.LOP_EXECUTE_INLINE_RANGE_resume:
-    add     r1, rSELF, #offThread_retval  @ r1<- &self->retval
-// begin WITH_TAINT_TRACKING
-//    sub     sp, sp, #8                  @ make room for arg, +64 bit align
-    sub     sp, sp, #4                  @ make room for arg, +64 bit align
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    str     r1, [sp]                    @ push &self->retval
-    add     r1, rSELF, #offThread_rtaint  @ r1< &self->rtaint
-    sub     sp, sp, #4			@ make room for arg
-    str     r1, [sp]                    @ push &self->rtaint
-    bl      .LOP_EXECUTE_INLINE_RANGE_continue        @ make call; will return after
-    add     sp, sp, #16                 @ pop stack 4x
-// end WITH_TAINT_TRACKING
-    cmp     r0, #0                      @ test boolean result of inline
-    beq     common_exceptionThrown      @ returned false, handle exception
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-    /*
-     * Extract args, call function.
-     *  r0 = #of args (0-4)
-     *  r10 = call index
-     *  lr = return addr, above  [DO NOT bl out of here w/o preserving LR]
-     */
-.LOP_EXECUTE_INLINE_RANGE_continue:
-    rsb     r0, r0, #4                  @ r0<- 4-r0
-    FETCH(r9, 2)                        @ r9<- CCCC
-    add     pc, pc, r0, lsl #3          @ computed goto, 2 instrs each
-    bl      common_abort                @ (skipped due to ARM prefetch)
-4:  add     ip, r9, #3                  @ base+3
-    GET_VREG(r3, ip)                    @ r3<- vBase[3]
-3:  add     ip, r9, #2                  @ base+2
-    GET_VREG(r2, ip)                    @ r2<- vBase[2]
-2:  add     ip, r9, #1                  @ base+1
-    GET_VREG(r1, ip)                    @ r1<- vBase[1]
-1:  add     ip, r9, #0                  @ (nop)
-    GET_VREG(r0, ip)                    @ r0<- vBase[0]
-0:
-// begin WITH_TAINT_TRACKING
-// push arg0_taint and arg1_taint
-    SET_TAINT_FP(r11)
-    add     ip, r9, #1                  
-    GET_VREG_TAINT(ip, ip, r11)
-    sub     sp, sp, #4			@ make room for arg
-    str     ip, [sp]                    @ push arg1_taint
-    GET_VREG_TAINT(ip, r9, r11)
-    sub     sp, sp, #4			@ make room for arg
-    str     ip, [sp]                    @ push arg0_taint
-// end WITH_TAINT_TRACKING
-    ldr     r9, .LOP_EXECUTE_INLINE_RANGE_table       @ table of InlineOperation
-5:  add     r9, pc
-    ldr     pc, [r9, r10, lsl #4]       @ sizeof=16, "func" is first entry
-    @ (not reached)
-
-
-    /*
-     * We're debugging or profiling.
-     * r10: opIndex
-     */
-.LOP_EXECUTE_INLINE_RANGE_debugmode:
-    mov     r0, r10
-    bl      dvmResolveInlineNative
-    cmp     r0, #0                      @ did it resolve?
-    beq     .LOP_EXECUTE_INLINE_RANGE_resume          @ no, just move on
-    mov     r9, r0                      @ remember method
-    mov     r1, rSELF
-    bl      dvmFastMethodTraceEnter     @ (method, self)
-    add     r1, rSELF, #offThread_retval@ r1<- &self->retval
-// begin WITH_TAINT_TRACKING
-//    sub     sp, sp, #8                  @ make room for arg, +64 bit align
-    sub     sp, sp, #4                  @ make room for arg, +64 bit align
-    mov     r0, rINST, lsr #8           @ r0<- AA
-    str     r1, [sp]                    @ push &self->retval
-    add     r1, rSELF, #offThread_rtaint  @ r1< &self->rtaint
-    sub     sp, sp, #4			@ make room for arg
-    str     r1, [sp]                    @ push &self->rtaint
-// end WITH_TAINT_TRACKING
-    bl      .LOP_EXECUTE_INLINE_RANGE_continue        @ make call; will return after
-    mov     r9, r0                      @ save result of inline
-// begin WITH_TAINT_TRACKING
-//    add     sp, sp, #8                  @ pop stack
-    add     sp, sp, #16                 @ pop stack 4x
-// end WITH_TAINT_TRACKING
-    mov     r0, rINST                   @ r0<- method
-    mov     r1, rSELF
-    bl      dvmFastNativeMethodTraceExit  @ (method, self)
-    cmp     r9, #0                      @ test boolean result of inline
-    beq     common_exceptionThrown      @ returned false, handle exception
-    FETCH_ADVANCE_INST(3)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-
-
-
-.LOP_EXECUTE_INLINE_RANGE_table:
-    .word   PCREL_REF(gDvmInlineOpsTable,5b)
-
-
-/* continuation for OP_INVOKE_OBJECT_INIT_RANGE */
-
-.LOP_INVOKE_OBJECT_INIT_RANGE_setFinal:
-    EXPORT_PC()                         @ can throw
-    bl      dvmSetFinalizable           @ call dvmSetFinalizable(obj)
-    ldr     r0, [rSELF, #offThread_exception] @ r0<- self->exception
-    cmp     r0, #0                      @ exception pending?
-    bne     common_exceptionThrown      @ yes, handle it
-    b       .LOP_INVOKE_OBJECT_INIT_RANGE_finish
-
-    /*
-     * A debugger is attached, so we need to go ahead and do
-     * this.  For simplicity, we'll just jump directly to the
-     * corresponding handler.  Note that we can't use
-     * rIBASE here because it may be in single-step mode.
-     * Load the primary table base directly.
-     */
-.LOP_INVOKE_OBJECT_INIT_RANGE_debugger:
-    ldr     r1, [rSELF, #offThread_mainHandlerTable]
-    mov     ip, #OP_INVOKE_DIRECT_RANGE
-    GOTO_OPCODE_BASE(r1,ip)             @ execute it
-
-/* continuation for OP_IGET_QUICK */
-
-.LOP_IGET_QUICK_taint_prop:
-    add     r1, r1, #4
-    ldr     r10, [r3, r1]
-    orr     r10, r9, r10
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    bx      lr
-
-
-/* continuation for OP_IGET_WIDE_QUICK */
-
-iget_wide_quick_taint_prop:
-    add     r3, rFP, r2, lsl #3         @ r3<- &fp[A]
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-//    stmia   r3, {r0-r1}                 @ fp[A]<- r0/r1
-    str     r0, [r3, #0]
-    str     r10, [r3, #4]
-    str     r1, [r3, #8]
-    str     r10, [r3, #12]
-    bx      lr
-
-/* continuation for OP_IGET_OBJECT_QUICK */
-
-.LOP_IGET_OBJECT_QUICK_taint_prop:
-	add		r1, r1, #4
-	ldr		r10, [r3, r1]
-	orr		r10, r9, r10
-	FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-	bx		lr
-
-/* continuation for OP_IPUT_WIDE_QUICK */
-
-iput_wide_quick_taint_prop:
-    add     r3, rFP, r0, lsl #3         @ r3<- &fp[A]
-    cmp     r2, #0                      @ check object for null
-//    ldmia   r3, {r0-r1}                 @ r0/r1<- fp[A]
-    ldr     r0, [r3, #0]
-    ldr     r1, [r3, #8]
-    ldr     r9, [r3, #4]
-    bx      lr
-
-/* continuation for OP_IPUT_OBJECT_QUICK */
-
-.LOP_IPUT_OBJECT_QUICK_taint_prop:
-    SET_TAINT_FP(r9)
-    GET_VREG_TAINT(r10, r2, r9)
-    ldr     r2, [rSELF, #offThread_cardTable]  @ r2<- card table base
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    str     r0, [r3, r1]                @ obj.field (always 32 bits)<- r0
-    add	    r1, r1, #4
-    str	    r10, [r3, r1]
-    bx	    lr
-
-/* continuation for OP_IPUT_OBJECT_VOLATILE */
-
-    /*
-     * Currently:
-     *  r0 holds resolved field
-     *  r9 holds object
-     */
-.LOP_IPUT_OBJECT_VOLATILE_finish:
-    @bl      common_squeak0
-    mov     r1, rINST, lsr #8           @ r1<- A+
-    ldr     r3, [r0, #offInstField_byteOffset]  @ r3<- byte offset of field
-    and     r1, r1, #15                 @ r1<- A
-    cmp     r9, #0                      @ check object for null
-    GET_VREG(r0, r1)                    @ r0<- fp[A]
-// begin WITH_TAINT_TRACKING
-    SET_TAINT_FP(r2)
-    GET_VREG_TAINT(r10, r1, r2)
-    ldr     r11, [rSELF, #offThread_cardTable]  @ r11<- card table base
-// end WITH_TAINT_TRACKING
-    beq     common_errNullObject        @ object was null
-    FETCH_ADVANCE_INST(2)               @ advance rPC, load rINST
-    GET_INST_OPCODE(ip)                 @ extract opcode from rINST
-    SMP_DMB_ST                        @ releasing store
-// begin WITH_TAINT_TRACKING
-//    .if     1
-//    add     r2, r9, r3                  @ r2<- target address
-//    mov     r1, r10                     @ r1<-taint
-//    bl      dvmQuasiAtomicSwap64        @ stores r0/r1 into addr r2
-//    .else
-    str     r0, [r9, r3]                @ obj.field (32 bits)<- r0
-    add     r3, r3, #4
-    str     r10, [r9, r3]
-//    .endif
-    SMP_DMB
-    cmp     r0, #0                      @ stored a null reference?
-    strneb  r11, [r11, r9, lsr #GC_CARD_SHIFT]  @ mark card if not
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-/* continuation for OP_SGET_OBJECT_VOLATILE */
-
-    /*
-     * Continuation if the field has not yet been resolved.
-     *  r1:  BBBB field ref
-     *  r10: dvmDex->pResFields
-     */
-.LOP_SGET_OBJECT_VOLATILE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SGET_OBJECT_VOLATILE_finish
-
-
-.LOP_SGET_OBJECT_VOLATILE_taint_prop:
-//    .if     1
-//    add     r0, r0, #offStaticField_value		@ r0<- address of field
-//    bl      dvmQuasiAtomicRead32SfieldTaint		@ r0/r1<- value/taint
-//    .else
-    ldr	    r1, [r0, #offStaticField_taint] @ r1<- taint value
-    ldr     r0, [r0, #offStaticField_value] @ r0<- field value
-    SMP_DMB                            @ acquiring load
-//    .endif
-    mov     r2, rINST, lsr #8           @ r2<- AA
-    SET_TAINT_FP(r3)
-    SET_VREG_TAINT(r1, r2, r3)
-    bx      lr
-
-/* continuation for OP_SPUT_OBJECT_VOLATILE */
-
-
-.LOP_SPUT_OBJECT_VOLATILE_end:
-// begin WITH_TAINT_TRACKING
-//    .if     1
-//    add	    r2, r0, #offStaticField_value       @ r2<- addr
-//    mov	    r0, r1                              @ r0<- val
-//    mov	    r1, r2                              @ r1<- addr
-//    mov	    r2, r3                              @ r2<- taint
-//    bl      dvmQuasiAtomicSwap32SfieldTaint
-//    cmp     r0, #0                    	        @ stored a null object?
-//    .else
-    str     r1, [r0, #offStaticField_value] @ field<- vAA
-    str	    r3, [r0, #offStaticField_taint]
-//    SMP_DMB
-    cmp     r1, #0                              @ stored a null object?
-//    .endif
-//    strneb  r2, [r2, r9, lsr #GC_CARD_SHIFT]  @ mark card based on obj head
-    strneb  r10, [r10, r9, lsr #GC_CARD_SHIFT]  @ mark card based on obj head
-// end WITH_TAINT_TRACKING
-    GOTO_OPCODE(ip)                     @ jump to next instruction
-
-    /* Continuation if the field has not yet been resolved.
-     * r1:  BBBB field ref
-     * r10: dvmDex->pResFields
-     */
-.LOP_SPUT_OBJECT_VOLATILE_resolve:
-    ldr     r2, [rSELF, #offThread_method]    @ r2<- current method
-#if defined(WITH_JIT)
-    add     r10, r10, r1, lsl #2        @ r10<- &dvmDex->pResFields[field]
-#endif
-    EXPORT_PC()                         @ resolve() could throw, so export now
-    ldr     r0, [r2, #offMethod_clazz]  @ r0<- method->clazz
-    bl      dvmResolveStaticField       @ r0<- resolved StaticField ptr
-    cmp     r0, #0                      @ success?
-    beq     common_exceptionThrown      @ no, handle exception
-#if defined(WITH_JIT)
-    /*
-     * If the JIT is actively building a trace we need to make sure
-     * that the field is fully resolved before including this instruction.
-     */
-    bl      common_verifyField
-#endif
-    b       .LOP_SPUT_OBJECT_VOLATILE_finish          @ resume
 
     .size   dvmAsmSisterStart, .-dvmAsmSisterStart
     .global dvmAsmSisterEnd

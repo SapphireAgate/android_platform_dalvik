@@ -19,6 +19,7 @@
  * native implementations at runtime; "intrinsic" might be a better word.
  */
 #include "Dalvik.h"
+#include "agate/AgatePolicy.h"
 
 #include <math.h>
 
@@ -158,8 +159,8 @@ bool javaLangString_charAt(u4 arg0, u4 arg1, u4 arg2, u4 arg3,
 
         pResult->i = ((const u2*)(void*)chars->contents)[arg1 + offset];
 #ifdef WITH_TAINT_TRACKING
-	// rtaint <- taint(string) | taint(index)
-	rtaint->tag = chars->taint.tag | arg1_taint;
+	// rtaint <- taint(string) merged with taint(index)
+	rtaint->tag = agate_merge_policies(chars->taint.tag, arg1_taint);
 #endif /*WITH_TAINT_TRACKING*/
         return true;
     }
@@ -661,7 +662,7 @@ bool javaLangMath_min_int(u4 arg0, u4 arg1, u4 arg2, u4 arg3,
 {
     pResult->i = ((s4) arg0 < (s4) arg1) ? arg0 : arg1;
 #ifdef WITH_TAINT_TRACKING
-    rtaint->tag = arg0_taint | arg1_taint;
+    rtaint->tag = agate_merge_policies(arg0_taint, arg1_taint);
 #endif /*WITH_TAINT_TRACKING*/
     return true;
 }
@@ -679,7 +680,7 @@ bool javaLangMath_max_int(u4 arg0, u4 arg1, u4 arg2, u4 arg3,
 {
     pResult->i = ((s4) arg0 > (s4) arg1) ? arg0 : arg1;
 #ifdef WITH_TAINT_TRACKING
-    rtaint->tag = arg0_taint | arg1_taint;
+    rtaint->tag = agate_merge_policies(arg0_taint, arg1_taint);
 #endif /*WITH_TAINT_TRACKING*/
     return true;
 }

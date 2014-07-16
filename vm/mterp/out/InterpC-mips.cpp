@@ -27,6 +27,7 @@
 #include "mterp/Mterp.h"
 #include <math.h>                   // needed for fmod, fmodf
 #include "mterp/common/FindInterface.h"
+#include "agate/AgatePolicy.h"
 
 /*
  * Configuration defines.  These affect the C implementations, i.e. the
@@ -876,8 +877,8 @@ GOTO_TARGET_DECL(exceptionThrown);
                 (s4) GET_REGISTER(vsrc1) _op (s4) GET_REGISTER(vsrc2));     \
         }                                                                   \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT(vdst,                                            \
-	    (GET_REGISTER_TAINT(vsrc1)|GET_REGISTER_TAINT(vsrc2)) );            \
+        SET_REGISTER_TAINT(vdst,agate_merge_policies                                            \
+	    (GET_REGISTER_TAINT(vsrc1),GET_REGISTER_TAINT(vsrc2)) );            \
 /* endif */                                                                 \
     }                                                                       \
     FINISH(2);
@@ -894,8 +895,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER(vdst,                                                  \
             _cast GET_REGISTER(vsrc1) _op (GET_REGISTER(vsrc2) & 0x1f));    \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT(vdst,                                            \
-	    (GET_REGISTER_TAINT(vsrc1)|GET_REGISTER_TAINT(vsrc2)) );            \
+        SET_REGISTER_TAINT(vdst,agate_merge_policies                                            \
+	    (GET_REGISTER_TAINT(vsrc1),GET_REGISTER_TAINT(vsrc2)) );            \
 /* endif */                                                                 \
     }                                                                       \
     FINISH(2);
@@ -1017,8 +1018,8 @@ GOTO_TARGET_DECL(exceptionThrown);
                 (s4) GET_REGISTER(vdst) _op (s4) GET_REGISTER(vsrc1));      \
         }                                                                   \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT(vdst,                                            \
-	    (GET_REGISTER_TAINT(vdst)|GET_REGISTER_TAINT(vsrc1)) );             \
+        SET_REGISTER_TAINT(vdst,agate_merge_policies                                            \
+	    (GET_REGISTER_TAINT(vdst),GET_REGISTER_TAINT(vsrc1)) );             \
 /* endif */                                                                 \
         FINISH(1);
 
@@ -1069,8 +1070,8 @@ GOTO_TARGET_DECL(exceptionThrown);
                 (s8) GET_REGISTER_WIDE(vsrc1) _op (s8) GET_REGISTER_WIDE(vsrc2)); \
         }                                                                   \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT_WIDE(vdst,                                       \
-	   (GET_REGISTER_TAINT_WIDE(vsrc1)|GET_REGISTER_TAINT_WIDE(vsrc2)));    \
+        SET_REGISTER_TAINT_WIDE(vdst,agate_merge_policies                                       \
+	   (GET_REGISTER_TAINT_WIDE(vsrc1),GET_REGISTER_TAINT_WIDE(vsrc2)));    \
 /* endif */                                                                 \
     }                                                                       \
     FINISH(2);
@@ -1087,8 +1088,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER_WIDE(vdst,                                             \
             _cast GET_REGISTER_WIDE(vsrc1) _op (GET_REGISTER(vsrc2) & 0x3f)); \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT_WIDE(vdst,                                       \
-	   (GET_REGISTER_TAINT_WIDE(vsrc1)|GET_REGISTER_TAINT_WIDE(vsrc2)));    \
+        SET_REGISTER_TAINT_WIDE(vdst,agate_merge_policies                                       \
+	   (GET_REGISTER_TAINT_WIDE(vsrc1),GET_REGISTER_TAINT_WIDE(vsrc2)));    \
 /* endif */                                                                 \
     }                                                                       \
     FINISH(2);
@@ -1123,8 +1124,8 @@ GOTO_TARGET_DECL(exceptionThrown);
                 (s8) GET_REGISTER_WIDE(vdst) _op (s8)GET_REGISTER_WIDE(vsrc1));\
         }                                                                   \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT_WIDE(vdst,                                       \
-	    (GET_REGISTER_TAINT_WIDE(vdst)|GET_REGISTER_TAINT_WIDE(vsrc1)));    \
+        SET_REGISTER_TAINT_WIDE(vdst,agate_merge_policies                                       \
+	    (GET_REGISTER_TAINT_WIDE(vdst),GET_REGISTER_TAINT_WIDE(vsrc1)));    \
 /* endif */                                                                 \
         FINISH(1);
 
@@ -1136,8 +1137,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER_WIDE(vdst,                                             \
             _cast GET_REGISTER_WIDE(vdst) _op (GET_REGISTER(vsrc1) & 0x3f)); \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT_WIDE(vdst,                                       \
-	    (GET_REGISTER_TAINT_WIDE(vdst)|GET_REGISTER_TAINT_WIDE(vsrc1)));    \
+        SET_REGISTER_TAINT_WIDE(vdst,agate_merge_policies                                       \
+	    (GET_REGISTER_TAINT_WIDE(vdst),GET_REGISTER_TAINT_WIDE(vsrc1)));    \
 /* endif */                                                                 \
         FINISH(1);
 
@@ -1153,8 +1154,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER_FLOAT(vdst,                                            \
             GET_REGISTER_FLOAT(vsrc1) _op GET_REGISTER_FLOAT(vsrc2));       \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT_FLOAT(vdst,                                      \
-	    (GET_REGISTER_TAINT_FLOAT(vsrc1)|GET_REGISTER_TAINT_FLOAT(vsrc2))); \
+        SET_REGISTER_TAINT_FLOAT(vdst,agate_merge_policies                                      \
+	    (GET_REGISTER_TAINT_FLOAT(vsrc1),GET_REGISTER_TAINT_FLOAT(vsrc2))); \
 /* endif */                                                                 \
     }                                                                       \
     FINISH(2);
@@ -1171,8 +1172,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER_DOUBLE(vdst,                                           \
             GET_REGISTER_DOUBLE(vsrc1) _op GET_REGISTER_DOUBLE(vsrc2));     \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT_DOUBLE(vdst,                                     \
-	    (GET_REGISTER_TAINT_DOUBLE(vsrc1)|GET_REGISTER_TAINT_DOUBLE(vsrc2)));\
+        SET_REGISTER_TAINT_DOUBLE(vdst,agate_merge_policies                                     \
+	    (GET_REGISTER_TAINT_DOUBLE(vsrc1),GET_REGISTER_TAINT_DOUBLE(vsrc2)));\
 /* endif */                                                                 \
     }                                                                       \
     FINISH(2);
@@ -1185,8 +1186,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER_FLOAT(vdst,                                            \
             GET_REGISTER_FLOAT(vdst) _op GET_REGISTER_FLOAT(vsrc1));        \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT_FLOAT(vdst,                                      \
-	    (GET_REGISTER_TAINT_FLOAT(vdst)|GET_REGISTER_TAINT_FLOAT(vsrc1)));  \
+        SET_REGISTER_TAINT_FLOAT(vdst,agate_merge_policies                                      \
+	    (GET_REGISTER_TAINT_FLOAT(vdst),GET_REGISTER_TAINT_FLOAT(vsrc1)));  \
 /* endif */                                                                 \
         FINISH(1);
 
@@ -1198,8 +1199,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER_DOUBLE(vdst,                                           \
             GET_REGISTER_DOUBLE(vdst) _op GET_REGISTER_DOUBLE(vsrc1));      \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT_DOUBLE(vdst,                                     \
-	    (GET_REGISTER_TAINT_DOUBLE(vdst)|GET_REGISTER_TAINT_DOUBLE(vsrc1)));\
+        SET_REGISTER_TAINT_DOUBLE(vdst,agate_merge_policies                                     \
+	    (GET_REGISTER_TAINT_DOUBLE(vdst),GET_REGISTER_TAINT_DOUBLE(vsrc1)));\
 /* endif */                                                                 \
         FINISH(1);
 
@@ -1226,8 +1227,8 @@ GOTO_TARGET_DECL(exceptionThrown);
             ((_type*)(void*)arrayObj->contents)[GET_REGISTER(vsrc2)]);      \
         ILOGV("+ AGET[%d]=%#x", GET_REGISTER(vsrc2), GET_REGISTER(vdst));   \
 /* ifdef WITH_TAINT_TRACKING */						                        \
-	SET_REGISTER_TAINT##_regsize(vdst,                                      \
-	    (GET_ARRAY_TAINT(arrayObj)|GET_REGISTER_TAINT(vsrc2)));             \
+	SET_REGISTER_TAINT##_regsize(vdst, agate_merge_policies                                     \
+	    (GET_ARRAY_TAINT(arrayObj),GET_REGISTER_TAINT(vsrc2)));             \
 /* endif */								                                    \
     }                                                                       \
     FINISH(2);
@@ -1255,8 +1256,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         ((_type*)(void*)arrayObj->contents)[GET_REGISTER(vsrc2)] =          \
             GET_REGISTER##_regsize(vdst);                                   \
 /* ifdef WITH_TAINT_TRACKING */						                        \
-	SET_ARRAY_TAINT(arrayObj,                                               \
-		(GET_ARRAY_TAINT(arrayObj) |                                        \
+	SET_ARRAY_TAINT(arrayObj,agate_merge_policies                                               \
+		(GET_ARRAY_TAINT(arrayObj) ,                                        \
 		 GET_REGISTER_TAINT##_regsize(vdst)) );                             \
 /* endif */								                                    \
     }                                                                       \
@@ -1303,8 +1304,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         ILOGV("+ IGET '%s'=0x%08llx", ifield->name,                         \
             (u8) GET_REGISTER##_regsize(vdst));                             \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-	SET_REGISTER_TAINT##_regsize(vdst,                                      \
-	    (GET_REGISTER_TAINT(vsrc1)|                                         \
+	SET_REGISTER_TAINT##_regsize(vdst,agate_merge_policies                                      \
+	    (GET_REGISTER_TAINT(vsrc1),                                         \
 	     dvmGetFieldTaint##_ftype(obj,ifield->byteOffset)) );               \
 /* endif */                                                                 \
     }                                                                       \
@@ -1328,8 +1329,8 @@ GOTO_TARGET_DECL(exceptionThrown);
 /* ifdef WITH_TAINT_TRACKING */                                             \
 	/*TLOGW("|IGETQ not supported by taint tracking!!!");*/                 \
 	/* compile flag WITH_TAINT_ODEX controls this now */                    \
-	SET_REGISTER_TAINT##_regsize(vdst,                                      \
-	    (GET_REGISTER_TAINT(vsrc1)|                                         \
+	SET_REGISTER_TAINT##_regsize(vdst,agate_merge_policies                                      \
+	    (GET_REGISTER_TAINT(vsrc1),                                         \
 	     dvmGetFieldTaint##_ftype(obj,ref)) );                              \
 /* endif */                                                                 \
     }                                                                       \

@@ -27,6 +27,14 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
     RETURN_BOOLEAN(result);
 }
 
+/* merge two policies */
+static void Dalvik_dalvik_agate_PolicyManagementModule_mergePolicies(const u4* args,
+    JValue* pResult)
+{
+    PolicyObject* result = (PolicyObject*) agate_merge_policies(args[0], args[1]);
+    RETURN_INT((u4)result);
+}
+
 /* Add policy to String */
 static void _add_policy_string(StringObject* strObj, u4 tag) {
     ArrayObject *value = NULL;
@@ -37,9 +45,7 @@ static void _add_policy_string(StringObject* strObj, u4 tag) {
 	    value->taint.tag = tag;
         } else {
             // merge the two policies
-            u4 m = (u4)agate_merge_policies((PolicyObject*)value->taint.tag, (PolicyObject*)tag);
-            //agate_free_policy(value->taint.tag);
-            //agate_free_policy(tag);
+            u4 m = agate_merge_policies(value->taint.tag, tag);
             value->taint.tag = m;
         }
     }
@@ -56,7 +62,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__(const u
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     //ALOGW("AgateLog: addPolicyString created policy: %d", (u4)p);
 
     //std::set<std::string> v = *(p->readers);
@@ -89,9 +95,7 @@ static void _add_policy_array(ArrayObject* arr, u4 tag)
 	    arr->taint.tag = tag;
         } else {
             // merge the two policies
-            u4 m = (u4)agate_merge_policies((PolicyObject*)arr->taint.tag, (PolicyObject*)tag);
-            //agate_free_policy(arr->taint.tag);
-            //agate_free_policy(tag);
+            u4 m = agate_merge_policies(arr->taint.tag, tag);
             arr->taint.tag = m;
         }
     }
@@ -108,7 +112,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__(co
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
 
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
@@ -136,7 +140,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__(c
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
 
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
@@ -164,7 +168,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__(cons
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
@@ -191,7 +195,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__(cons
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
@@ -218,7 +222,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyIntArray(const u
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
@@ -234,7 +238,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShortArray(const
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
@@ -250,7 +254,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLongArray(const 
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
@@ -266,7 +270,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloatArray(const
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
@@ -282,7 +286,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDoubleArray(cons
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
     RETURN_VOID();
 }
@@ -297,7 +301,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBoolean(const u4
     u4 poid    = args[1];	 /* the tag to add */
     u4* rtaint = (u4*) &args[2]; /* pointer to return taint tag */
     u4 vtaint  = args[3];	 /* the existing taint tag on val */
-    *rtaint    = (vtaint | poid);
+    *rtaint    = agate_merge_policies(vtaint, poid);
     RETURN_BOOLEAN(val);
 }
 
@@ -312,7 +316,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyChar(const u4* a
     u4 poid    = args[1];         /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
-    *rtaint    = (vtaint | poid);
+    *rtaint    = agate_merge_policies(vtaint, poid);
     RETURN_CHAR(val);
 }
 
@@ -327,7 +331,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByte(const u4* a
     u4 poid    = args[1];         /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
-    *rtaint    = (vtaint | poid);
+    *rtaint    = agate_merge_policies(vtaint, poid);
     RETURN_BYTE(val);
 }
 
@@ -342,7 +346,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyInt(const u4* ar
     u4 poid    = args[1];	  /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
-    *rtaint    = (vtaint | poid);
+    *rtaint    = agate_merge_policies(vtaint, poid);
     RETURN_INT(val);
 }
 
@@ -357,7 +361,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShort(const u4* 
     u4 poid    = args[1];	  /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
-    *rtaint    = (vtaint | poid);
+    *rtaint    = agate_merge_policies(vtaint, poid);
     RETURN_SHORT(val);
 }
 
@@ -373,7 +377,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLong(const u4* a
     u4* rtaint = (u4*) &args[3];     /* pointer to return taint tag */
     u4 vtaint  = args[4];	     /* the existing taint tag on val */
     memcpy(&val, &args[0], 8);	     /* EABI prevents direct store */
-    *rtaint    = (vtaint | poid);
+    *rtaint    = agate_merge_policies(vtaint, poid);
     RETURN_LONG(val);
 }
 
@@ -388,7 +392,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloat(const u4* 
     u4 poid    = args[1];	  /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
-    *rtaint    = (vtaint | poid);
+    *rtaint    = agate_merge_policies(vtaint, poid);
     RETURN_INT(val);		  /* Be opaque; RETURN_FLOAT doesn't work */
 }
 
@@ -404,7 +408,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDouble(const u4*
     u4* rtaint = (u4*) &args[3];     /* pointer to return taint tag */
     u4 vtaint  = args[4];	     /* the existing taint tag on val */
     memcpy(&val, &args[0], 8);	     /* EABI prevents direct store */
-    *rtaint = (vtaint | poid);
+    *rtaint    = agate_merge_policies(vtaint, poid);
     RETURN_LONG(val);		     /* Be opaque; RETURN_DOUBLE doesn't work */
 }
 
@@ -774,7 +778,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicySocket(const u4*
     ArrayObject* readers = (ArrayObject*) args[1];
     ArrayObject* writers = (ArrayObject*) args[2];
 
-    PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(readers, writers);
     agate_add_policy_on_socket(fd, p);
 
     RETURN_VOID();
@@ -848,6 +852,8 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_logPeerFromFd(const u4* a
 const DalvikNativeMethod dvm_dalvik_agate_PolicyManagementModule[] = {
     { "canFlow",  "(II)Z",
         Dalvik_dalvik_agate_PolicyManagementModule_canFlow},
+    { "mergePolicies",  "(II)I",
+        Dalvik_dalvik_agate_PolicyManagementModule_mergePolicies},
     { "addPolicyString",  "(Ljava/lang/String;[I[I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__},
     { "addPolicyString",  "(Ljava/lang/String;I)V",

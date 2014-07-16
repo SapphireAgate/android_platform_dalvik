@@ -15,6 +15,7 @@
  */
 
 #include "Dalvik.h"
+#include "agate/AgatePolicy.h"
 #include "native/InternalNativePriv.h"
 
 #include <stdlib.h>
@@ -287,9 +288,9 @@ static void Dalvik_java_lang_System_arraycopy(const u4* args, JValue* pResult)
 #ifdef WITH_TAINT_TRACKING
         if (dstPos == 0 && dstArray->length == length) {
             /* entire array replaced */
-            dstArray->taint.tag = (srcArray->taint.tag | srcPosTaint);
+            dstArray->taint.tag = agate_merge_policies(srcArray->taint.tag, srcPosTaint);
         } else {
-            dstArray->taint.tag |= (srcArray->taint.tag | srcPosTaint);
+            dstArray->taint.tag = agate_merge_policies(dstArray->taint.tag, agate_merge_policies(srcArray->taint.tag, srcPosTaint));
         }
 #endif
     } else {
@@ -317,9 +318,9 @@ static void Dalvik_java_lang_System_arraycopy(const u4* args, JValue* pResult)
 #ifdef WITH_TAINT_TRACKING
             if (dstPos == 0 && dstArray->length == length) {
                 /* entire array replaced */
-                dstArray->taint.tag = (srcArray->taint.tag | srcPosTaint);
+                dstArray->taint.tag = agate_merge_policies(srcArray->taint.tag, srcPosTaint);
             } else {
-                dstArray->taint.tag |= (srcArray->taint.tag | srcPosTaint);
+                dstArray->taint.tag = agate_merge_policies(dstArray->taint.tag, agate_merge_policies(srcArray->taint.tag, srcPosTaint));
             }
 #endif
         } else {
@@ -370,9 +371,9 @@ static void Dalvik_java_lang_System_arraycopy(const u4* args, JValue* pResult)
 #ifdef WITH_TAINT_TRACKING
             if (dstPos == 0 && dstArray->length == copyCount) {
                 /* entire array replaced */
-                dstArray->taint.tag = (srcArray->taint.tag | srcPosTaint);
+                dstArray->taint.tag = agate_merge_policies(srcArray->taint.tag, srcPosTaint);
             } else {
-                dstArray->taint.tag |= (srcArray->taint.tag | srcPosTaint);
+                dstArray->taint.tag = agate_merge_policies(dstArray->taint.tag, agate_merge_policies(srcArray->taint.tag, srcPosTaint));
             }
 #endif
             if (copyCount != length) {

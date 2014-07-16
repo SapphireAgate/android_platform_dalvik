@@ -25,7 +25,9 @@ static void visitFields(Visitor *visitor, Object *obj, void *arg)
     assert(visitor != NULL);
     assert(obj != NULL);
     assert(obj->clazz != NULL);
-    if (obj->clazz->refOffsets != CLASS_WALK_SUPER) {
+
+    //if (obj->clazz->refOffsets != CLASS_WALK_SUPER) {
+	if(false) {
         size_t refOffsets = obj->clazz->refOffsets;
         while (refOffsets != 0) {
             size_t rshift = CLZ(refOffsets);
@@ -39,10 +41,20 @@ static void visitFields(Visitor *visitor, Object *obj, void *arg)
              clazz != NULL;
              clazz = clazz->super) {
             InstField *field = clazz->ifields;
-            for (int i = 0; i < clazz->ifieldRefCount; ++i, ++field) {
+            for (int i = 0; i < clazz->ifieldCount; ++i, ++field) {
                 size_t offset = field->byteOffset;
-                Object **ref = (Object **)BYTE_OFFSET(obj, offset);
-                (*visitor)(ref, arg);
+				if (i < clazz->ifieldRefCount) {
+		            Object *ref = (Object *)BYTE_OFFSET(obj, offset);
+		            (*visitor)(ref, arg);
+				}
+				Object *ref = (Object *)BYTE_OFFSET(obj, offset + sizeof(int));
+				if (dvmIsValidObject(ref)) {
+					(*visitor)(ref, arg);
+				}
+				ref = (Object *)BYTE_OFFSET(obj, offset + 3*sizeof(int));
+				if (dvmIsValidObject(ref)) {
+					(*visitor)(ref, arg);
+				}
             }
         }
     }
@@ -57,6 +69,7 @@ static void visitStaticFields(Visitor *visitor, ClassObject *clazz,
     assert(visitor != NULL);
     assert(clazz != NULL);
     for (int i = 0; i < clazz->sfieldCount; ++i) {
+		(*visitor)((void*)clazz->sfields[i].taint.tag,arg);
         char ch = clazz->sfields[i].signature[0];
         if (ch == '[' || ch == 'L') {
             (*visitor)(&clazz->sfields[i].value.l, arg);
@@ -116,6 +129,7 @@ static void visitArrayObject(Visitor *visitor, Object *obj, void *arg)
     (*visitor)(&obj->clazz, arg);
     if (IS_CLASS_FLAG_SET(obj->clazz, CLASS_ISOBJECTARRAY)) {
         ArrayObject *array = (ArrayObject *)obj;
+		(*visitor)((void*)array->taint.tag, arg);
         Object **contents = (Object **)(void *)array->contents;
         for (size_t i = 0; i < array->length; ++i) {
             (*visitor)(&contents[i], arg);

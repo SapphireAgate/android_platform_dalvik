@@ -10,8 +10,8 @@ HANDLE_OPCODE(OP_REM_FLOAT /*vAA, vBB, vCC*/)
             fmodf(GET_REGISTER_FLOAT(vsrc1), GET_REGISTER_FLOAT(vsrc2)));
 /* ifdef WITH_TAINT_TRACKING */
 #ifdef WITH_TAINT_TRACKING
-        SET_REGISTER_TAINT_FLOAT(vdst,
-	    (GET_REGISTER_TAINT_FLOAT(vsrc1)|GET_REGISTER_TAINT_FLOAT(vsrc2)));
+        SET_REGISTER_TAINT_FLOAT(vdst,agate_merge_policies
+	    (GET_REGISTER_TAINT_FLOAT(vsrc1),GET_REGISTER_TAINT_FLOAT(vsrc2)));
 #endif /*WITH_TAINT_TRACKING*/
 /* endif */
     }

@@ -8,122 +8,94 @@
 
 /* General functions to work with  Policies: merge, create, delete, can flow.  */
 
-/* 
- * Creates a policy for the given reader/writer ArrayObjects
- *
- *    The policy is allocated with the ALLOC_DEFAULT flag,
- *    which means that the allocation is tracked in the
- *    current thread reference table so it won't be GCed.
- *
- *    After the policy is saved inside an object or on the
- *    stack, it must be dvmReleaseTrack'ed.
- */
-PolicyObject* agate_create_policy(ArrayObject* readers, ArrayObject* writers)
+/* Creates a policy for the given reader/writer vectors */
+PolicyObject* agate_create_policy(ArrayObject* userReaders, ArrayObject* writers)
 {
-    /* Allocate space for a new policy */
-    PolicyObject* p = (PolicyObject*) dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
+	return agate_create_policy_g(userReaders, NULL, writers);
+}
+PolicyObject* agate_create_policy_g(ArrayObject* userReaders, ArrayObject* groupReaders, ArrayObject* writers)
+{
+	// Create readerset
+	int userReaderCount = 0;
+	if(userReaders != NULL)
+		userReaderCount = userReaders->length;
+	ArrayObject* uReaders = dvmAllocPrimitiveArray('I', userReaderCount, 0);
 
-    /* Allocate space for the reader's vector */
-    // no need to track the allocation, p is already tracked and scanned.
-    p->readers = dvmAllocPrimitiveArray('I', readers->length, ALLOC_DEFAULT);
-    dvmReleaseTrackedAlloc((Object*)p->readers, NULL);
+	int groupReaderCount = 0;
+	if(groupReaders != NULL)
+		groupReaderCount = groupReaders->length;
+	ArrayObject* gReaders = dvmAllocPrimitiveArray('I', groupReaderCount, 0);
 
-    if (p->readers == NULL) {
-        // Probably OOM.
-        assert(dvmCheckException(dvmThreadSelf()));
-        return NULL;
-    }
+	ClassObject* readersetclazz = dvmFindArrayClassForElement(uReaders->clazz);
+	ArrayObject* readerset = dvmAllocArrayByClass(readersetclazz, 2, 0);
 
-    int *r1 = (int*)(void*)p->readers->contents;
-    int *r2 = (int*)(void*)readers->contents;
+	// copy data into uReader and gReaders
+	for(int i = 0; i < userReaderCount; i++) {
+		((int*)uReaders->contents)[i] = ((int*)uReaders)[i];
+	}
+	for(int i = 0; i < groupReaderCount; i++) {
+		((int*)gReaders->contents)[i] = ((int*)gReaders)[i];
+	}
+	((ArrayObject**)readerset->contents)[0] = uReaders;
+	((ArrayObject**)readerset->contents)[1] = gReaders;
+	dvmReleaseTrackedAlloc((Object *)uReaders, NULL);
+	dvmReleaseTrackedAlloc((Object *)gReaders, NULL);
 
-    /* Copy contents from readers argument */
-    for (u4 i = 0; i < readers->length; i++) {
-        r1[i] = r2[i];
-    }
+    // Allocate space for a new policy
+	ClassObject* policyclazz = dvmFindArrayClassForElement(readerset->clazz);
+	ArrayObject* p = dvmAllocArrayByClass(policyclazz, 1, ALLOC_DONT_TRACK);
 
-    // TODO: make the same for writers
+	((ArrayObject**)p->contents)[0] = readerset;
+	dvmReleaseTrackedAlloc((Object *)readerset, NULL);
+
     return p;
 }
 
-void agate_print_policy(PolicyObject* p) {
-    assert(p != NULL);
-
-    int* readers = (int*)(void*)p->readers->contents;
-
-    ALOGE("AgateLog: [agate_print_policy] Policy = ");
-    for(u4 i = 0; i < p->readers->length; i++)
-        ALOGE("R:%d", readers[i]);
-}
-
-
-/* Un-tracks the policy, it will be GC'ed */
-void agate_release_policy(PolicyObject* p)
-{
-    dvmReleaseTrackedAlloc((Object*) p, NULL);
-}
-
 /* Merges two policies */
-PolicyObject* agate_merge_policies(PolicyObject* p1, PolicyObject* p2)
+u4 agate_merge_policies(u4 tag1, u4 tag2)
 {
-    assert(p1 != NULL);
-    assert(p2 != NULL);
+	if(tag1 == (u4)NULL)
+		return tag2;
 
-    /*
-     * Confidentiality merge: Computes intersection of
-     * readers.
-     */
+	if(tag2 == (u4)NULL)
+		return tag1;
 
-    int* r1 = (int*)(void*)p1->readers->contents;
-    u4 n_r1 = p1->readers->length;
-    int* r2 = (int*)(void*)p2->readers->contents;
-    u4 n_r2 = p2->readers->length;
- 
-    u4 n_r = 0;
-    // compute intersection in m
-    int* m = (int*) malloc(sizeof(u4) * ((n_r1 < n_r2)? n_r1 : n_r2));
+	if(tag1 == tag2)
+		return tag1;
 
-    for (u4 i = 0; i < n_r1; i++) {
-        for (u4 j = 0; j < n_r2; j++) {
-            if (r1[i] == r2[j]) {
-                m[n_r++] = r1[i];
-                break;
-            }
-        }
-    }
+	ALOGI("AgateLog: [mergePolicies] merging non-trival policies");
 
-    /* Allocate space for a new policy */
-    PolicyObject* p = (PolicyObject*) dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
+    ArrayObject* p1 = (ArrayObject*) tag1;
+    ArrayObject* p2 = (ArrayObject*) tag2;
 
-    /* Allocate space for the reader's vector */
-    // no need to track the allocation, p is already tracked and scanned.
-    p->readers = dvmAllocPrimitiveArray('I', n_r, ALLOC_DEFAULT);
-    dvmReleaseTrackedAlloc((Object*) p->readers, NULL); 
+	int p1Count = p1->length;
+	int p2Count = p2->length;
+	ArrayObject* p = dvmAllocArrayByClass(p1->clazz, p1Count + p2Count, ALLOC_DONT_TRACK);
 
-    for (u4 i = 0; i < n_r; i++) {
-        ((int*)(void*)p->readers->contents)[i] = m[i];
-    }
+	for(int i = 0; i < p1Count; i++) {
+		((ArrayObject*)p->contents)[i] = ((ArrayObject*)p1->contents)[i];
+	}
 
-    return p; 
+	for(int i = 0; i < p2Count; i++) {
+		((ArrayObject*)p->contents)[p1Count + i] = ((ArrayObject*)p2->contents)[i];
+	}
+
+    return (u4)p;
 }
 
 /* Checks if can flow from tag1 to tag2 */
 bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
 {
+	return true;
+/*
     assert(p1 != NULL);
     assert(p2 != NULL);
-
-
-    /* TODO: Hack! If no policy */
-    //if (fromPolicy == NULL || toPolicy == NULL) {
-    //    return true;
-    //}
-
+*/
     /*
      * Confidentiality check: Check if readers in source policy
      * include all readers in the destination policy.
      */
-
+/*
     int* fromReaders = (int*)(void*)fromPolicy->readers->contents;
     int* toReaders = (int*)(void*)toPolicy->readers->contents;
 
@@ -141,36 +113,36 @@ bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
     }
  
     return result;
+*/
 }
 
 /* Add a policy on a socket */
 void agate_add_policy_on_socket(int fd, PolicyObject* p)
 {
-    Tag* tmpT = (Tag*) malloc(sizeof(Tag));
-    tmpT->policy = p;
+	Tag* tag = (Tag*) malloc(sizeof(Tag));
+	if(tag == NULL) {
+		ALOGE("AgateLog: [addPolicySocket(%d)] failed, out of memory",fd);
+	}
 
-    if (tmpT) {
-        dvmHashTableLock(gDvmAgate.socketPolicies);
-        dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpT,
-                                    hashcmpTags, hashupdateTag, true);
-        ALOGI("AgateLog: [addPolicySocket(%d)] adding 0x%08x",
-                fd, (u4)tmpT->policy);
-        dvmHashTableUnlock(gDvmAgate.socketPolicies);
-    }
+	dvmAddTrackedAlloc((Object *)p, NULL);
+
+    dvmHashTableLock(gDvmAgate.socketPolicies);
+    dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tag,
+                                hashcmpTags, hashupdateTag, true);
+    ALOGI("AgateLog: [addPolicySocket(%d)] adding 0x%08x",
+            fd, p);
+    dvmHashTableUnlock(gDvmAgate.socketPolicies);
 }
 
 /* Retrieve the policy that has been set on a socket */
 PolicyObject* agate_get_policy_on_socket(int fd)
 {
-    PolicyObject* p = 0;
-
     dvmHashTableLock(gDvmAgate.socketPolicies);
     Tag* t = (Tag*) dvmHashMapLookup(gDvmAgate.socketPolicies, fd);
 
-    if (t != NULL)
-        p = t->policy;
-
     dvmHashTableUnlock(gDvmAgate.socketPolicies);
+
+	PolicyObject* p = t->policy;
 
     if (p) {
         ALOGI("AgateLog: [getPolicySocket(%d)] = 0x%08x", fd, (u4)p);
@@ -184,19 +156,17 @@ PolicyObject* agate_get_policy_on_socket(int fd)
 /* function of type HashCompareFunc */
 int hashcmpTags(const void* p1, const void* p2)
 {
-    Tag* t1 = (Tag*) p1;
-    Tag* t2 = (Tag*) p2;
+	Tag* t1 = (Tag*)p1;
+	Tag* t2 = (Tag*)p2;
     return (u4) t1->policy - (u4) t2->policy;
 }
 
 /* function of type HashFreeFunc */
 void freeTag(void* t)
 {
-    Tag* tag = (Tag*) t;
-    //agate_release_policy(tag->tag);
-    if (tag != NULL) {
+	Tag* tag = (Tag*)t;
+	dvmReleaseTrackedAlloc((Object *) (tag->policy), NULL);
 	free(tag);
-    }
 }
 
 /* function of type HashUpdateFunc */
@@ -207,13 +177,9 @@ void hashupdateTag(const void* oldTag, const void* newTag)
 
     assert(n != NULL);
     assert(o != NULL);
-    
-    // merge the two policies TODO: check of NULL; check if can free ...
-    PolicyObject* m = agate_merge_policies(o->policy, n->policy);
-    //agate_free_policy(o->tag);
-    //agate_free_policy(n->tag); // TODO: check this
 
-    o->policy = m;
+    // merge the two policies
+    u4 m = agate_merge_policies((u4) o->policy, (u4) n->policy);
 
-    free(n);
+    o->policy = (PolicyObject*)m;
 }

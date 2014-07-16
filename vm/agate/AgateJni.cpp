@@ -122,12 +122,22 @@ int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
 /*
  * Encodes a policy as a stream of bytes (Serializes)
  */
+<<<<<<< HEAD
 char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag, int extraSize) {
     PolicyObject* p = (PolicyObject*) tag;
     u4 v_size = p->readers->length;
 
     /* Compute total length of the serialized policy */
     int output_length = 2*sizeof(int); // one int to encode total_length
+=======
+char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
+
+    Policy* p = (Policy*) tag;
+    int readersetCount = p->length;
+
+    /* Compute total length of the serialized policy */
+    int output_length = sizeof(int); // one int to encode total_length
+>>>>>>> c3db92f... finished policy merging (except jit) and did policy garbage collection
 	int readerset_count = 0;
 	for(int i = 0; i < readersetCount; i++) {
 		ArrayObject* rs = ((ArrayObject**)p->contents)[i];
@@ -149,11 +159,18 @@ char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag, int extraSize) {
 	}
 
 	/* Allocate memory */
+<<<<<<< HEAD
     char* bytes = (char*)malloc(output_length + extraSize);
 
 	/* Add the  policy as a continuous stream */
 	char* q = _add_int(bytes, output_length - sizeof(int));
 	q = _add_int(bytes, readerset_count);
+=======
+    char* bytes = (char*)malloc(output_length);
+
+	/* Add the  policy as a continuous stream */
+	char* q = _add_int(bytes, readerset_count);
+>>>>>>> c3db92f... finished policy merging (except jit) and did policy garbage collection
 
 	// fill with data
 	for(int i = 0; i < readersetCount; i++) {
@@ -183,6 +200,7 @@ char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag, int extraSize) {
 /*
  * De-codes a policy from a stream of bytes (De-serialization)
  */
+<<<<<<< HEAD
 int agateJniDecodePolicy(JNIEnv* env, char* s) {
     // TODO: for now only the readers
     u4 n_r;
@@ -208,6 +226,62 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
     }
 
     return (int)p;
+=======
+int agateJniDecodePolicy(JNIEnv* env, char* p) {
+
+    int readerset_count;
+    
+    char* q = _get_int(p, &readerset_count);
+
+	if(readerset_count == 0) {
+		return NULL;
+	}
+
+	ArrayObject** policies = (ArrayObject**)malloc(sizeof(u4)*readerset_count);
+
+	for(int i = 0; i < readerset_count; i++) {
+		int user_count;
+		q = _get_int(q, &user_count);
+		//fill user readers
+		ArrayObject* uReaders = dvmAllocPrimitiveArray('I', user_count, 0);
+		for(int j = 0; j < user_count; j++) {
+			int userId;
+			q = _get_int(q, &userId);
+			((int*)uReaders->contents)[j] = userId;
+		}
+
+		int group_count;
+		q = _get_int(q, &group_count);
+		//fill group readers
+		ArrayObject* gReaders = dvmAllocPrimitiveArray('I', group_count, 0);
+		for(int j = 0; j < group_count; j++) {
+			int groupId;
+			q = _get_int(q, &groupId);
+			((int*)gReaders->contents)[j] = groupId;
+		}
+
+		//make a readerset
+		ClassObject* readersetclazz = dvmFindArrayClassForElement(uReaders->clazz);
+		ArrayObject* readerset = dvmAllocArrayByClass(readersetclazz, 2, 0);
+
+		((ArrayObject**)readerset->contents)[0] = uReaders;
+		((ArrayObject**)readerset->contents)[1] = gReaders;
+		dvmReleaseTrackedAlloc((Object *)uReaders, NULL);
+		dvmReleaseTrackedAlloc((Object *)gReaders, NULL);
+
+		policies[i] = readerset;
+	}
+
+	ClassObject* policyclazz = dvmFindArrayClassForElement(policies[0]->clazz);
+	ArrayObject* out = dvmAllocArrayByClass(policyclazz, readerset_count, ALLOC_DONT_TRACK);
+
+	for(int i = 0; i < readerset_count; i++) {
+		((ArrayObject**)out->contents)[i] = policies[i];
+		dvmReleaseTrackedAlloc((Object *)policies[i], NULL);
+	}
+
+	return (u4)out;
+>>>>>>> c3db92f... finished policy merging (except jit) and did policy garbage collection
 }
 
 /*
