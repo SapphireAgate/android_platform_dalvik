@@ -38,9 +38,8 @@ static void _add_policy_string(StringObject* strObj, u4 tag) {
         } else {
             // merge the two policies
             u4 m = (u4)agate_merge_policies((PolicyObject*)value->taint.tag, (PolicyObject*)tag);
-            //agate_free_policy(value->taint.tag);
-            //agate_free_policy(tag);
             value->taint.tag = m;
+            agate_release_policy((PolicyObject*) m);
         }
     }
 }
@@ -66,6 +65,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__(const u
     //}
 
     _add_policy_string(strObj, (u4)p);
+    agate_release_policy(p); // safe to untrack
 
     RETURN_VOID();
 }
@@ -90,9 +90,8 @@ static void _add_policy_array(ArrayObject* arr, u4 tag)
         } else {
             // merge the two policies
             u4 m = (u4)agate_merge_policies((PolicyObject*)arr->taint.tag, (PolicyObject*)tag);
-            //agate_free_policy(arr->taint.tag);
-            //agate_free_policy(tag);
             arr->taint.tag = m;
+            agate_release_policy((PolicyObject*) m);
         }
     }
 }
@@ -111,6 +110,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__(co
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
 
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 
@@ -139,6 +139,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__(c
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
 
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 
@@ -166,6 +167,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__(cons
 
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 
@@ -193,6 +195,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__(cons
 
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 
@@ -220,6 +223,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyIntArray(const u
 
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 
@@ -236,6 +240,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShortArray(const
 
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 
@@ -252,6 +257,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLongArray(const 
 
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 
@@ -268,6 +274,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloatArray(const
 
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 
@@ -284,6 +291,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDoubleArray(cons
 
     PolicyObject* p = (PolicyObject*) agate_create_policy(readers, writers);
     _add_policy_array(arr, (u4)p);
+    agate_release_policy(p); // safe to untrack
     RETURN_VOID();
 }
 

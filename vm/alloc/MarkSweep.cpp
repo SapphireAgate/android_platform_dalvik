@@ -321,9 +321,18 @@ static void scanArrayObject(const Object *obj, GcMarkContext *ctx)
     }
 
 // begin WITH_SAPPHIRE_AGATE
-    /* Scan for valid policies */
-    //PolicyObject* p = (PolicyObject*)((ArrayObject*)obj)->taint.tag;
+    /* Scan for possible policy */
+    PolicyObject* p = (PolicyObject*)((ArrayObject*)obj)->taint.tag;
     //markObject(p, ctx);
+    if (p!=NULL) {
+        ALOGW("AgateLog: [scanArrayObject] Trying to mark policy object in array %p at %p", (void*)obj, (void*)p);
+        ALOGW("AgateLog: [scanArrayObject] Class of array's %p elements: %s", (void*)obj, obj->clazz->descriptor);
+        // print array
+        ArrayObject* arrObj = (ArrayObject*) obj;
+        for (u4 i = 0; i < arrObj->length; i++) {
+            ALOGW("%c", ((char*)(arrObj->contents))[i]);
+        }
+    }
 // end WITH_SAPPHIRE_AGATE
 }
 
@@ -465,10 +474,11 @@ static void scanPolicyObject(const Object* obj, GcMarkContext* ctx) {
     assert(ctx != NULL);
 
     PolicyObject* p = (PolicyObject*) obj;
-    assert(p->readers != NULL);
+
     markObject(p->readers, ctx);
-    // TODO: mark writers
-    //markNonObject(p->writers, ctx);
+    ALOGW("AgateLog: [scanPolicyObject] Marked Policy Object at %p", (void*) obj);
+
+    //markObject(p->writers, ctx);
 }
 // end WITH_SAPPHIRE_AGATE
 
@@ -483,7 +493,7 @@ static void scanObject(const Object *obj, GcMarkContext *ctx)
 
 // begin WITH_SAPPHIRE_AGATE
     if (obj->clazz == NULL) { // must be a PolicyObject
-        //scanPolicyObject(obj, ctx);
+        scanPolicyObject(obj, ctx);
         return;
     }
 // end WITH_SAPPHIRE_AGATE

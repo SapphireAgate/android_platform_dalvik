@@ -116,6 +116,7 @@ int agateJniGetStringPolicy(JNIEnv* env, jobject obj) {
  */
 int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
     ArrayObject* arrObj = (ArrayObject*) dvmJniGetObject(env, obj);
+    ALOGW("AgateLog: [agateJniGetArrayPolicy] Getting policy on array object: %p", (void*) arrObj);
     return arrObj->taint.tag;
 }
 
@@ -176,6 +177,13 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
 }
 
 /*
+ * Un-tracks a heap allocated policy
+ */
+void agateJniReleasePolicy(JNIEnv* env, int tag) {
+    agate_release_policy((PolicyObject*) tag);
+}
+
+/*
  * Adds policy to a socket
  */
 void agateJniAddSocketPolicy(JNIEnv* env, jobject java_fd, int tag) {
@@ -190,7 +198,9 @@ void agateJniAddStringPolicy(JNIEnv* env) {
 }
 
 /*
- * Adds policy to an ArrayObject
+ * Adds existing policy to an ArrayObject. The caller must know if
+ * it needs to un-track the policy from tracked GC memory or not and make
+ * sure that he does. This function does not un-track the policy.
  */
 void agateJniAddArrayPolicy(JNIEnv* env, jobject obj, int tag) {
     ArrayObject* arrObj = (ArrayObject*) dvmJniGetObject(env, obj);

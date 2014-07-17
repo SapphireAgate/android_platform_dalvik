@@ -10,9 +10,6 @@
 #define AGATE_SOCKET_POLICIES_TABLE_SIZE 32 /* number of sockets */
 #define AGATE_TAG_POLICIES_TABLE_SIZE 32 /* number of policies */
 
-#define AGATE_OBJECT_TYPE_POLICY            1
-#define AGATE_OBJECT_TYPE_POLICY_INT_ARRAY  2
-
 /* The structure of a policy.
  *
  * Currently, a policy is defined in terms of User principals. A User
