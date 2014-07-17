@@ -122,27 +122,62 @@ int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
 /*
  * Encodes a policy as a stream of bytes (Serializes)
  */
-char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
-
+char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag, int extraSize) {
     PolicyObject* p = (PolicyObject*) tag;
     u4 v_size = p->readers->length;
 
     /* Compute total length of the serialized policy */
-    u4 total_length = v_size * sizeof(u4) + 2 * sizeof(u4); // encode also the vector size and total_length
+    int output_length = 2*sizeof(int); // one int to encode total_length
+	int readerset_count = 0;
+	for(int i = 0; i < readersetCount; i++) {
+		ArrayObject* rs = ((ArrayObject**)p->contents)[i];
+		ArrayObject* rus = ((ArrayObject**)rs->contents)[0];
+		ArrayObject* rgs = ((ArrayObject**)rs->contents)[1];
 
-    /* Allocate memory */
-    char* bytes = (char*)malloc(total_length);
+		output_length += 2*sizeof(int);
+		readerset_count++;
 
-    /* Add the  policy as a continuous stream */
-    char* q = _add_int(bytes, total_length); // TODO: add u4, but it's ok because sizeof(u4) = sizeof(int)
-    q = _add_int(q, v_size);
-    for (u4 i = 0; i < v_size; i++) {
-        q = _add_int(q, ((int*)(void*)p->readers->contents)[i]);
-    }
+		int userCount = rus->length;
+		for(int j = 0; j < userCount; j++) {
+			output_length += sizeof(int);
+		}
 
-    // TODO: add writers
-    *size = total_length;
-    return bytes;
+		int groupCount = rgs->length;
+		for(int j = 0; j < groupCount; j++) {
+			output_length += sizeof(int);
+		}
+	}
+
+	/* Allocate memory */
+    char* bytes = (char*)malloc(output_length + extraSize);
+
+	/* Add the  policy as a continuous stream */
+	char* q = _add_int(bytes, output_length - sizeof(int));
+	q = _add_int(bytes, readerset_count);
+
+	// fill with data
+	for(int i = 0; i < readersetCount; i++) {
+		ArrayObject* rs = ((ArrayObject**)p->contents)[i];
+		ArrayObject* rus = ((ArrayObject**)p->contents)[0];
+		ArrayObject* rgs = ((ArrayObject**)p->contents)[1];
+
+		int userCount = rus->length;
+		q = _add_int(q,userCount);
+		for(int j = 0; j < userCount; j++) {
+			int userId = ((int*)rus->contents)[j];
+			q = _add_int(q,userId);
+		}
+
+		int groupCount = rgs->length;
+		q = _add_int(q,groupCount);
+		for(int j = 0; j < userCount; j++) {
+			int groupId = ((int*)rgs->contents)[j];
+			q = _add_int(q,groupId);
+		}
+	}
+
+	*size = output_length;
+	return bytes;
 }
 
 /*
