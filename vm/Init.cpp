@@ -1125,7 +1125,7 @@ static int processOptions(int argc, const char* const argv[],
                 gDvm.executionMode = kExecutionModeInterpFast;
 //start WITH_SAPPHIRE_AGATE
                 // set default interpreter to portable
-                //gDvm.executionMode = kExecutionModeInterpPortable;
+                gDvm.executionMode = kExecutionModeInterpPortable;
 //end WITH_SAPPHIRE_AGATE
             }
 

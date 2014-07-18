@@ -58,14 +58,26 @@ void agate_print_policy(PolicyObject* p) {
 
 
 /* Un-tracks the policy, it will be GC'ed */
-void agate_release_policy(PolicyObject* p)
+void agate_release_policy(int tag)
 {
-    dvmReleaseTrackedAlloc((Object*) p, NULL);
+    dvmReleaseTrackedAlloc((Object*) tag, NULL);
 }
 
 /* Merges two policies */
-PolicyObject* agate_merge_policies(PolicyObject* p1, PolicyObject* p2)
+int agate_merge_policies(int tag1, int tag2)
 {
+    PolicyObject* p1 = (PolicyObject*) tag1;
+    PolicyObject* p2 = (PolicyObject*) tag2;
+
+    if (p1 == NULL && p2 == NULL)
+        return 0; 
+
+    if (p1 == NULL)
+        return tag2;
+
+    if (p2 == NULL)
+        return tag1;
+
     assert(p1 != NULL);
     assert(p2 != NULL);
 
@@ -78,7 +90,7 @@ PolicyObject* agate_merge_policies(PolicyObject* p1, PolicyObject* p2)
     u4 n_r1 = p1->readers->length;
     int* r2 = (int*)(void*)p2->readers->contents;
     u4 n_r2 = p2->readers->length;
- 
+
     u4 n_r = 0;
     // compute intersection in m
     int* m = (int*) malloc(sizeof(u4) * ((n_r1 < n_r2)? n_r1 : n_r2));
@@ -104,7 +116,7 @@ PolicyObject* agate_merge_policies(PolicyObject* p1, PolicyObject* p2)
         ((int*)(void*)p->readers->contents)[i] = m[i];
     }
 
-    return p; 
+    return (int) p; 
 }
 
 /* Checks if can flow from tag1 to tag2 */
@@ -209,7 +221,7 @@ void hashupdateTag(const void* oldTag, const void* newTag)
     assert(o != NULL);
     
     // merge the two policies TODO: check of NULL; check if can free ...
-    PolicyObject* m = agate_merge_policies(o->policy, n->policy);
+    PolicyObject* m = (PolicyObject*) agate_merge_policies((int) o->policy, (int) n->policy);
     //agate_free_policy(o->tag);
     //agate_free_policy(n->tag); // TODO: check this
 

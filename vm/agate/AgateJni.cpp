@@ -180,7 +180,7 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
  * Un-tracks a heap allocated policy
  */
 void agateJniReleasePolicy(JNIEnv* env, int tag) {
-    agate_release_policy((PolicyObject*) tag);
+    agate_release_policy(tag);
 }
 
 /*

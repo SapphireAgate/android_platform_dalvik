@@ -45,7 +45,7 @@ static void _add_policy_string(StringObject* strObj, u4 tag) {
 	    value->taint.tag = tag;
         } else {
             // merge the two policies
-            u4 m = agate_merge_policies(value->taint.tag, tag);
+            int m = agate_merge_policies(value->taint.tag, tag);
             value->taint.tag = m;
             agate_release_policy(m);
         }
@@ -97,7 +97,7 @@ static void _add_policy_array(ArrayObject* arr, u4 tag)
 	    arr->taint.tag = tag;
         } else {
             // merge the two policies
-            u4 m = agate_merge_policies(arr->taint.tag, tag);
+            int m = agate_merge_policies(arr->taint.tag, tag);
             arr->taint.tag = m;
             agate_release_policy(m);
         }

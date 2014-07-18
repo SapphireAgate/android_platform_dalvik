@@ -42,9 +42,9 @@ PolicyObject* agate_create_policy(ArrayObject* readers, ArrayObject* writers);
 /* Prints the given policy */
 void agate_print_policy(PolicyObject* p);
 /* Un-tracks a policy */
-void agate_release_policy(PolicyObject* p);
+void agate_release_policy(int tag);
 /* Merges two policies */
-PolicyObject* agate_merge_policies(PolicyObject* p1, PolicyObject* p2);
+int agate_merge_policies(int tag1, int tag2);
 /* Policy flow check */
 bool agate_can_flow(PolicyObject* p1, PolicyObject* p2);
 /* Add a policy on a socket */

@@ -104,7 +104,6 @@ static void visitThreadStack(RootVisitor *visitor, Thread *thread, void *arg)
                 int addr = saveArea->xtra.currentPc - method->insns;
                 regVector = dvmRegisterMapGetLine(pMap, addr);
             }
-			regVector = NULL; //TODO: this is to make sure taint is followed in GC
             if (regVector == NULL) {
                 /*
                  * Either there was no register map or there is no
@@ -113,13 +112,8 @@ static void visitThreadStack(RootVisitor *visitor, Thread *thread, void *arg)
                  */
                 for (size_t i = 0; i < method->registersSize; ++i) {
 #ifdef WITH_TAINT_TRACKING
-					if (dvmIsValidObject((Object *)fp[(i<<1) + 1])) {
-						//visit policy
-						(*visitor)(&fp[(i<<1) + 1], threadId, ROOT_JAVA_FRAME, arg);
-					}
                     if (dvmIsValidObject((Object *)fp[i<<1])) {
-						//and object
-						(*visitor)(&fp[i<<1], threadId, ROOT_JAVA_FRAME, arg);
+			(*visitor)(&fp[i<<1], threadId, ROOT_JAVA_FRAME, arg);
                     }
 #else
                     if (dvmIsValidObject((Object *)fp[i])) {
@@ -136,7 +130,6 @@ static void visitThreadStack(RootVisitor *visitor, Thread *thread, void *arg)
                  *
                  * A '1' bit indicates a live reference.
                  */
-
                 u2 bits = 1 << 1;
                 for (size_t i = 0; i < method->registersSize; ++i) {
                     bits >>= 1;
@@ -160,11 +153,7 @@ static void visitThreadStack(RootVisitor *visitor, Thread *thread, void *arg)
                         }
 #endif
 #ifdef WITH_TAINT_TRACKING
-						(*visitor)(&fp[i<<1], threadId, ROOT_JAVA_FRAME, arg);
-						//visit policy
-						if (dvmIsValidObject((Object *)fp[(i<<1) + 1])) {
-							(*visitor)(&fp[(i<<1) + 1], threadId, ROOT_JAVA_FRAME, arg);
-						}
+			(*visitor)(&fp[i<<1], threadId, ROOT_JAVA_FRAME, arg);
 #else
                         (*visitor)(&fp[i], threadId, ROOT_JAVA_FRAME, arg);
 #endif
