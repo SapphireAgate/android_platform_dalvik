@@ -66,6 +66,9 @@ void agate_release_policy(int tag)
 /* Merges two policies */
 int agate_merge_policies(int tag1, int tag2)
 {
+    if (tag1 == tag2)
+        return tag1;
+
     PolicyObject* p1 = (PolicyObject*) tag1;
     PolicyObject* p2 = (PolicyObject*) tag2;
 
