@@ -55,9 +55,14 @@
 #define MAKE_INTRINSIC_TRAMPOLINE(INTRINSIC_FN) \
     extern bool INTRINSIC_FN(u4 arg0, u4 arg1, u4 arg2, u4 arg3, u4 arg0_taint, u4 arg1_taint, struct Taint* rtaint, \
             JValue* pResult); \
-	Taint rtaint;		\
-	rtaint.tag = args[4]; \
-    INTRINSIC_FN(args[0], args[1], args[2], args[3], args[5], args[6], &rtaint, pResult);
+/* begin WITH_SAPPHIRE_AGATE */      \
+        u4 ins_count = *(args - 1); \
+/* end WITH_SAPPHIRE_AGATE */       \
+        Taint rtaint;		\
+	rtaint.tag = args[ins_count]; \
+/* begin WITH_SAPPHIRE_AGATE */      \
+    INTRINSIC_FN(args[0], args[1], args[2], args[3], args[ins_count + 1], args[ins_count + 2], &rtaint, pResult);
+/* end WITH_SAPPHIRE_AGATE */
 #else
 #define MAKE_INTRINSIC_TRAMPOLINE(INTRINSIC_FN) \
 	extern bool INTRINSIC_FN(u4 arg0, u4 arg1, u4 arg2, u4 arg3, \

@@ -130,6 +130,7 @@
 /*
  * If enabled, log instructions as we execute them.
  */
+
 #ifdef LOG_INSTR
 # define ILOGD(...) ILOG(LOG_DEBUG, __VA_ARGS__)
 # define ILOGV(...) ILOG(LOG_VERBOSE, __VA_ARGS__)
@@ -3508,7 +3509,7 @@ OP_END
  * next instruction.  Here, these are subroutines that return to the caller.
  */
 
-GOTO_TARGET(filledNewArray, bool methodCallRange, bool)
+GOTO_TARGET(filledNewArray, bool methodCallRange)
     {
         ClassObject* arrayClass;
         ArrayObject* newArray;
@@ -3606,7 +3607,7 @@ GOTO_TARGET(filledNewArray, bool methodCallRange, bool)
 GOTO_TARGET_END
 
 
-GOTO_TARGET(invokeVirtual, bool methodCallRange, bool)
+GOTO_TARGET(invokeVirtual, bool methodCallRange)
     {
         Method* baseMethod;
         Object* thisPtr;
@@ -4522,6 +4523,10 @@ GOTO_TARGET(invokeMethod, bool methodCallRange, const Method* _methodToCall,
              * space for locals on native calls, "newFp" points directly
              * to the method arguments.
              */
+// begin WITH_SAPPHIRE_AGATE
+            // HACK to solve the taintdroid bug when calling intrinsic native methods
+            *(newFp - 1) = methodToCall->insSize;
+// end WITH_SAPPHIRE_AGATE
             (*methodToCall->nativeFunc)(newFp, &retval, methodToCall, self);
 
 #ifdef WITH_TAINT_TRACKING
