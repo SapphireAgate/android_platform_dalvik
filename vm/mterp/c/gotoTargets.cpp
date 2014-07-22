@@ -1022,6 +1022,10 @@ GOTO_TARGET(invokeMethod, bool methodCallRange, const Method* _methodToCall,
              * space for locals on native calls, "newFp" points directly
              * to the method arguments.
              */
+// begin WITH_SAPPHIRE_AGATE
+            // HACK to solve the taintdroid bug when calling intrinsic native methods
+            *(newFp - 1) = methodToCall->insSize;
+// end WITH_SAPPHIRE_AGATE
             (*methodToCall->nativeFunc)(newFp, &retval, methodToCall, self);
 
 #ifdef WITH_TAINT_TRACKING
