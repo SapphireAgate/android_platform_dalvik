@@ -1031,8 +1031,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER(vdst,                                                  \
             _cast GET_REGISTER(vdst) _op (GET_REGISTER(vsrc1) & 0x1f));     \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT(vdst,                                            \
-	    (GET_REGISTER_TAINT(vdst)|GET_REGISTER_TAINT(vsrc1)) );             \
+        SET_REGISTER_TAINT(vdst,agate_merge_policies                                           \
+	    (GET_REGISTER_TAINT(vdst),GET_REGISTER_TAINT(vsrc1)) );             \
 /* endif */                                                                 \
         FINISH(1);
 
@@ -2448,8 +2448,8 @@ HANDLE_OPCODE(OP_APUT_OBJECT /*vAA, vBB, vCC*/)
                                  GET_REGISTER(vsrc2),
                                  (Object *)GET_REGISTER(vdst));
 /* ifdef WITH_TAINT_TRACKING */
-	SET_ARRAY_TAINT(arrayObj,
-		(GET_ARRAY_TAINT(arrayObj) |
+	SET_ARRAY_TAINT(arrayObj,agate_merge_policies
+		(GET_ARRAY_TAINT(arrayObj) ,
 		 GET_REGISTER_TAINT(vdst)) );
 /* endif */
     }
@@ -3049,8 +3049,8 @@ HANDLE_OPCODE(OP_REM_DOUBLE_2ADDR /*vA, vB*/)
     SET_REGISTER_DOUBLE(vdst,
         fmod(GET_REGISTER_DOUBLE(vdst), GET_REGISTER_DOUBLE(vsrc1)));
 /* ifdef WITH_TAINT_TRACKING */
-        SET_REGISTER_TAINT_DOUBLE(vdst,
-	    (GET_REGISTER_TAINT_DOUBLE(vdst)|GET_REGISTER_TAINT_DOUBLE(vsrc1)));
+        SET_REGISTER_TAINT_DOUBLE(vdst,agate_merge_policies
+	    (GET_REGISTER_TAINT_DOUBLE(vdst),GET_REGISTER_TAINT_DOUBLE(vsrc1)));
 /* endif */
     FINISH(1);
 OP_END
@@ -3558,7 +3558,7 @@ void dvmMterpStdBail(Thread* self)
  * next instruction.  Here, these are subroutines that return to the caller.
  */
 
-GOTO_TARGET(filledNewArray, bool methodCallRange, bool)
+GOTO_TARGET(filledNewArray, bool methodCallRange)
     {
         ClassObject* arrayClass;
         ArrayObject* newArray;
@@ -3656,7 +3656,7 @@ GOTO_TARGET(filledNewArray, bool methodCallRange, bool)
 GOTO_TARGET_END
 
 
-GOTO_TARGET(invokeVirtual, bool methodCallRange, bool)
+GOTO_TARGET(invokeVirtual, bool methodCallRange)
     {
         Method* baseMethod;
         Object* thisPtr;

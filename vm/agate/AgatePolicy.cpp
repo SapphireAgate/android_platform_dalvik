@@ -81,6 +81,8 @@ int agate_merge_policies(int tag1, int tag2)
     assert(p1 != NULL);
     assert(p2 != NULL);
 
+    ALOGW("AgateLog: [agate_merge_policies] Merging %p with %p", p1, p2);
+
     /*
      * Confidentiality merge: Computes intersection of
      * readers.

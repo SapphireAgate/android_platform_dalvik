@@ -38,6 +38,8 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_mergePolicies(const u4* a
 /* Add policy to String */
 static void _add_policy_string(StringObject* strObj, u4 tag) {
     ArrayObject *value = NULL;
+
+    ALOGW("AgateLog: [_add_policy_string]");
  
     if (strObj) {
         value = strObj->array();
@@ -92,6 +94,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__I(const 
 /* Adds a policy on an array */
 static void _add_policy_array(ArrayObject* arr, u4 tag)
 {
+    ALOGW("AgateLog: [_add_policy_array]");
     if (arr) {
         if (arr->taint.tag == 0) {
 	    arr->taint.tag = tag;

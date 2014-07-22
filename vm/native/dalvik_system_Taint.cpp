@@ -37,10 +37,15 @@ static void Dalvik_dalvik_system_Taint_addTaintString(const u4* args,
 {
     StringObject *strObj = (StringObject*) args[0];
     u4 tag = args[1];
+
+    if (tag != 0) {
+        ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintString] adding taint(%p) on string: %s", (void*) tag, dvmCreateCstrFromString(strObj));
+    }
+
     ArrayObject *value = NULL;
 
     if (strObj) {
-    value = strObj->array();
+        value = strObj->array();
 	value->taint.tag = agate_merge_policies(value->taint.tag, tag);
     }
     RETURN_VOID();
@@ -55,6 +60,9 @@ static void Dalvik_dalvik_system_Taint_addTaintObjectArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
+        if (tag != 0) {
+            ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintObjectArray] adding taint(%p) on object array", (void*) tag);
+        }
 	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
     }
     RETURN_VOID();
@@ -69,6 +77,9 @@ static void Dalvik_dalvik_system_Taint_addTaintBooleanArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
+        if (tag != 0) {
+            ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintBooleanArray] adding taint(%p) on object array", (void*) tag);
+        }
 	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
     }
     RETURN_VOID();
@@ -83,6 +94,9 @@ static void Dalvik_dalvik_system_Taint_addTaintCharArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
+        if (tag != 0) {
+            ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintCharArray] adding taint(%p) on char array", (void*) tag);
+        }
 	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
     }
     RETURN_VOID();
@@ -97,6 +111,9 @@ static void Dalvik_dalvik_system_Taint_addTaintByteArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
+        if (tag != 0) {
+            ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintByteArray] adding taint(%p) on byte array", (void*) tag);
+        }
 	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
     }
     RETURN_VOID();
@@ -111,6 +128,9 @@ static void Dalvik_dalvik_system_Taint_addTaintIntArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
+        if (tag != 0) {
+            ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintIntArray] adding taint(%p) on int array", (void*) tag);
+        }
 	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
     }
     RETURN_VOID();
@@ -196,6 +216,9 @@ static void Dalvik_dalvik_system_Taint_addTaintChar(const u4* args,
     u4 tag     = args[1];         /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
+    if (tag != 0) {
+        ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintChar] adding taint(%p) on char", (void*) tag);
+    }
     *rtaint = agate_merge_policies(vtaint, tag);
     RETURN_CHAR(val);
 }
@@ -210,6 +233,9 @@ static void Dalvik_dalvik_system_Taint_addTaintByte(const u4* args,
     u4 tag     = args[1];         /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
+    if (tag != 0) {
+        ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintByte] adding taint(%p) on byte", (void*) tag);
+    }
     *rtaint = agate_merge_policies(vtaint, tag);
     RETURN_BYTE(val);
 }
@@ -224,6 +250,9 @@ static void Dalvik_dalvik_system_Taint_addTaintInt(const u4* args,
     u4 tag     = args[1];	  /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
+    if (tag != 0) {
+        ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintInt] adding taint(%p) on int", (void*) tag);
+    }
     *rtaint = agate_merge_policies(vtaint, tag);
     RETURN_INT(val);
 }

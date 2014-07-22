@@ -1031,8 +1031,8 @@ GOTO_TARGET_DECL(exceptionThrown);
         SET_REGISTER(vdst,                                                  \
             _cast GET_REGISTER(vdst) _op (GET_REGISTER(vsrc1) & 0x1f));     \
 /* ifdef WITH_TAINT_TRACKING */                                             \
-        SET_REGISTER_TAINT(vdst,                                            \
-	    (GET_REGISTER_TAINT(vdst)|GET_REGISTER_TAINT(vsrc1)) );             \
+        SET_REGISTER_TAINT(vdst,agate_merge_policies                                           \
+	    (GET_REGISTER_TAINT(vdst),GET_REGISTER_TAINT(vsrc1)) );             \
 /* endif */                                                                 \
         FINISH(1);
 
@@ -1488,7 +1488,7 @@ OP_END
  * next instruction.  Here, these are subroutines that return to the caller.
  */
 
-GOTO_TARGET(filledNewArray, bool methodCallRange, bool)
+GOTO_TARGET(filledNewArray, bool methodCallRange)
     {
         ClassObject* arrayClass;
         ArrayObject* newArray;
@@ -1586,7 +1586,7 @@ GOTO_TARGET(filledNewArray, bool methodCallRange, bool)
 GOTO_TARGET_END
 
 
-GOTO_TARGET(invokeVirtual, bool methodCallRange, bool)
+GOTO_TARGET(invokeVirtual, bool methodCallRange)
     {
         Method* baseMethod;
         Object* thisPtr;

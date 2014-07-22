@@ -326,7 +326,6 @@ static void genIGetWide(CompilationUnit *cUnit, MIR *mir, int fieldOffset)
     loadPair(cUnit, regPtr, rlResult.lowReg, rlResult.highReg);
 #ifdef WITH_TAINT_TRACKING
     loadWordDisp(cUnit, regPtr, 8, fieldTaint);
-	*((int*)0);
     opRegRegReg(cUnit, kOpOr, fieldTaint, objTaint, fieldTaint);
     dvmCompilerFreeTemp(cUnit, objTaint);
 #endif /*WITH_TAINT_TRACKING*/
@@ -396,7 +395,6 @@ static void genIGet(CompilationUnit *cUnit, MIR *mir, OpSize size,
                  size, rlObj.sRegLow);
 #ifdef WITH_TAINT_TRACKING
     loadWordDisp(cUnit, fieldTaint, 4, fieldTaint);
-	*((int*)0);
     opRegRegReg(cUnit, kOpOr, fieldTaint, objTaint, fieldTaint);
     dvmCompilerFreeTemp(cUnit, objTaint);
 #endif /*WITH_TAINT_TRACKING*/
@@ -483,7 +481,6 @@ static void genArrayGet(CompilationUnit *cUnit, MIR *mir, OpSize size,
 #ifdef WITH_TAINT_TRACKING
     int arrayTaint = dvmCompilerAllocTemp(cUnit);
     loadWordDisp(cUnit, rlArray.lowReg, taintOffset, arrayTaint);
-	*((int*)0);
     opRegRegReg(cUnit, kOpOr, indexTaint, indexTaint, arrayTaint);
     dvmCompilerFreeTemp(cUnit, arrayTaint);
 #endif /*WITH_TAINT_TRACKING*/
@@ -581,7 +578,6 @@ static void genArrayPut(CompilationUnit *cUnit, MIR *mir, OpSize size,
 #ifdef WITH_TAINT_TRACKING
     int arrayTaint = dvmCompilerAllocTemp(cUnit);
     loadWordDisp(cUnit, rlArray.lowReg, taintOffset, arrayTaint);
-	*((int*)0);
     opRegRegReg(cUnit, kOpOr, argTaint, argTaint, arrayTaint);
     storeWordDisp(cUnit, rlArray.lowReg, taintOffset, argTaint);
     dvmCompilerFreeTemp(cUnit, arrayTaint);
@@ -668,7 +664,6 @@ static void genArrayObjectPut(CompilationUnit *cUnit, MIR *mir,
 
     loadTaintDirect(cUnit, rlArray, argTaint);
     loadWordDisp(cUnit, regArray, taintOffset, arrayTaint);
-	*((int*)0);
     opRegRegReg(cUnit, kOpOr, argTaint, argTaint, arrayTaint);
     storeWordDisp(cUnit, regArray, taintOffset, argTaint);
 
@@ -769,7 +764,6 @@ static bool genShiftOpLong(CompilationUnit *cUnit, MIR *mir,
     int taint2 = dvmCompilerAllocTemp(cUnit);
     loadTaintDirectWide(cUnit, rlSrc1, taint1);
     loadTaintDirect(cUnit, rlShift, taint2);
-	*((int*)0);
     opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
     storeTaintDirectWide(cUnit, rlDest, taint1);
     dvmCompilerFreeTemp(cUnit, taint1);
@@ -824,7 +818,6 @@ static bool genArithOpLong(CompilationUnit *cUnit, MIR *mir,
      	    int taint2 = dvmCompilerAllocTemp(cUnit);
             loadTaintDirectWide(cUnit, rlSrc1, taint1);
             loadTaintDirectWide(cUnit, rlSrc2, taint2);
-			*((int*)0);
             opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
             storeTaintDirectWide(cUnit, rlDest, taint1);
             dvmCompilerFreeTemp(cUnit, taint1);
@@ -893,7 +886,6 @@ static bool genArithOpLong(CompilationUnit *cUnit, MIR *mir,
         int taint2 = dvmCompilerAllocTemp(cUnit);
         loadTaintDirectWide(cUnit, rlSrc1, taint1);
         loadTaintDirectWide(cUnit, rlSrc2, taint2);
-		*((int*)0);
         opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
         storeTaintDirectWide(cUnit, rlDest, taint1);
         dvmCompilerFreeTemp(cUnit, taint1);
@@ -923,7 +915,6 @@ static bool genArithOpLong(CompilationUnit *cUnit, MIR *mir,
     	int taint2 = dvmCompilerAllocTemp(cUnit);
         loadTaintDirectWide(cUnit, rlSrc1, taint1);
         loadTaintDirectWide(cUnit, rlSrc2, taint2);
-		*((int*)0);
         opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
         storeTaintDirectWide(cUnit, rlDest, taint1);
         dvmCompilerFreeTemp(cUnit, taint1);
@@ -1047,7 +1038,6 @@ static bool genArithOpInt(CompilationUnit *cUnit, MIR *mir,
             int taint2 = dvmCompilerAllocTemp(cUnit);
             loadTaintDirect(cUnit, rlSrc1, taint);
             loadTaintDirect(cUnit, rlSrc2, taint2);
-			*((int*)0);
             opRegRegReg(cUnit, kOpOr, taint, taint, taint2);
             dvmCompilerFreeTemp(cUnit, taint2);
 #endif /*WITH_TAINT_TRACKING*/
@@ -1078,7 +1068,6 @@ static bool genArithOpInt(CompilationUnit *cUnit, MIR *mir,
     	int taint2 = dvmCompilerAllocTemp(cUnit);
         loadTaintDirect(cUnit, rlSrc1, taint1);
         loadTaintDirect(cUnit, rlSrc2, taint2);
-		*((int*)0);
         opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
         storeTaintDirect(cUnit, rlDest, taint1);
         dvmCompilerFreeTemp(cUnit, taint1);
@@ -1139,7 +1128,6 @@ static bool genArithOp(CompilationUnit *cUnit, MIR *mir)
     	int taint2 = dvmCompilerAllocTemp(cUnit);
     	loadTaintDirect(cUnit, rlSrc1, taint1);
     	loadTaintDirect(cUnit, rlSrc2, taint2);
-		*((int*)0);
     	opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
     	storeTaintDirect(cUnit, rlDest, taint1);
         dvmCompilerFreeTemp(cUnit, taint1);
@@ -1157,7 +1145,6 @@ static bool genArithOp(CompilationUnit *cUnit, MIR *mir)
     	int taint2 = dvmCompilerAllocTemp(cUnit);
         loadTaintDirect(cUnit, rlSrc1, taint1);
         loadTaintDirect(cUnit, rlSrc2, taint2);
-		*((int*)0);
         opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
         storeTaintDirect(cUnit, rlDest, taint1);
         dvmCompilerFreeTemp(cUnit, taint1);
@@ -1175,7 +1162,6 @@ static bool genArithOp(CompilationUnit *cUnit, MIR *mir)
     	int taint2 = dvmCompilerAllocTemp(cUnit);
     	loadTaintDirectWide(cUnit, rlSrc1, taint1);
     	loadTaintDirectWide(cUnit, rlSrc2, taint2);
-		*((int*)0);
     	opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
     	storeTaintDirectWide(cUnit, rlDest, taint1);
         dvmCompilerFreeTemp(cUnit, taint1);
@@ -1193,7 +1179,6 @@ static bool genArithOp(CompilationUnit *cUnit, MIR *mir)
     	int taint2 = dvmCompilerAllocTemp(cUnit);
     	loadTaintDirectWide(cUnit, rlSrc1, taint1);
     	loadTaintDirectWide(cUnit, rlSrc2, taint2);
-		*((int*)0);
         opRegRegReg(cUnit, kOpOr, taint1, taint1, taint2);
         storeTaintDirectWide(cUnit, rlDest, taint1);
         dvmCompilerFreeTemp(cUnit, taint1);
@@ -4330,7 +4315,6 @@ static bool genInlinedStringCharAt(CompilationUnit *cUnit, MIR *mir)
     rlResult = dvmCompilerEvalLoc(cUnit, rlDest, kCoreReg, true);
     loadBaseIndexed(cUnit, regPtr, regOff, rlResult.lowReg, 1, kUnsignedHalf);
 #ifdef WITH_TAINT_TRACKING
-	*((int*)0);
     opRegRegReg(cUnit, kOpOr, strTaint, idxTaint, strTaint);
     storeTaintDirect(cUnit, rlDest, strTaint);
     dvmCompilerFreeTemp(cUnit, strTaint);
