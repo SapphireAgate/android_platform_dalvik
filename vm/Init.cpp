@@ -1323,6 +1323,11 @@ static void setCommandLineDefaults()
 #endif /*WITH_TAINT_TRACKING*/
 #endif
 
+// begin WITH_SAPPHIRE_AGATE
+    // Force to use the portable interpreter
+    gDvm.executionMode = kExecutionModeInterpPortable;
+// end WITH_SAPPHIRE_AGATE
+
     /*
      * SMP support is a compile-time define, but we may want to have
      * dexopt target a differently-configured device.
