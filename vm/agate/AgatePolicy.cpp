@@ -66,31 +66,26 @@ void agate_release_policy(int tag)
 /* Merges two policies */
 int agate_merge_policies(int tag1, int tag2)
 {
-    if (tag1 == tag2)
-        return tag1;
-
     PolicyObject* p1 = (PolicyObject*) tag1;
     PolicyObject* p2 = (PolicyObject*) tag2;
 
-    if (p1 == NULL && p2 == NULL)
-        return 0; 
-
-    if (p1 == NULL)
+    if (p1 == NULL) {
         return tag2;
+    }
 
-    if (p2 == NULL)
+    if (p2 == NULL) {
         return tag1;
+    }
 
-    assert(p1 != NULL);
-    assert(p2 != NULL);
-
-    ALOGW("AgateLog: [agate_merge_policies] Merging %p with %p", p1, p2);
+    if (p1 == p2) {
+        return tag1;
+    }
 
     /*
      * Confidentiality merge: Computes intersection of
      * readers.
      */
-
+	//ALOGE("Non trivial merge between %p and %p",p1,p2);
     int* r1 = (int*)(void*)p1->readers->contents;
     u4 n_r1 = p1->readers->length;
     int* r2 = (int*)(void*)p2->readers->contents;
@@ -127,18 +122,19 @@ int agate_merge_policies(int tag1, int tag2)
 /* Checks if can flow from tag1 to tag2 */
 bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
 {
+	ALOGI("call to can flow");
     assert(p1 != NULL);
     assert(p2 != NULL);
 
 
     /* TODO: Hack! If no policy */
-    //if (fromPolicy == NULL || toPolicy == NULL) {
-    //    return true;
-    //}
+    if (fromPolicy == NULL || toPolicy == NULL) {
+        return true;
+    }
 
     /*
-     * Confidentiality check: Check if readers in source policy
-     * include all readers in the destination policy.
+     * Confidentiality check: Check if readers in to policy
+     * are all included in the from policy
      */
 
     int* fromReaders = (int*)(void*)fromPolicy->readers->contents;
@@ -146,15 +142,20 @@ bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
 
     bool result = true;
     for (u4 i = 0; i < toPolicy->readers->length; i++) {
+		ALOGI("making sure %d can read data",toReaders[i]);
         result = false;
         for (u4 j = 0; j < fromPolicy->readers->length; j++) {
+			ALOGI("checking %d",fromReaders[j]);
             if (toReaders[i] == fromReaders[j]) {
+				ALOGI("found");
                 result = true;
                 break;
             }
         }
-        if (result == false)
+        if (result == false) {
+			ALOGI("didn't find");
             break;
+        }
     }
  
     return result;
@@ -184,8 +185,11 @@ PolicyObject* agate_get_policy_on_socket(int fd)
     dvmHashTableLock(gDvmAgate.socketPolicies);
     Tag* t = (Tag*) dvmHashMapLookup(gDvmAgate.socketPolicies, fd);
 
-    if (t != NULL)
+    if (t != NULL) {
         p = t->policy;
+    } else {
+        ALOGE("tried to get policy on socket without policy set fd:%d", fd);
+    }
 
     dvmHashTableUnlock(gDvmAgate.socketPolicies);
 

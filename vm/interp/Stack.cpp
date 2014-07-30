@@ -21,6 +21,7 @@
  */
 #include "Dalvik.h"
 #include "jni.h"
+#include "agate/AgatePolicy.h"
 
 #include <stdlib.h>
 #include <stdarg.h>
@@ -929,7 +930,7 @@ Object* dvmInvokeMethod(Object* obj, const Method* method,
 #ifdef WITH_TAINT_TRACKING
         /* dvmConvertArgument() returns -1, 1, or 2 */
         if (nativeTarget) {
-        	nativeTag |= tag; /* TODO: is there a better way to do this?*/
+        	nativeTag = agate_merge_policies(nativeTag,tag); /* TODO: is there a better way to do this?*/
         	ins += width;
         } else {
         	if (width == 2) {

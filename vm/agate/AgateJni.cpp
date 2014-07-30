@@ -97,6 +97,34 @@ bool agateJniCanFlow(JNIEnv* env, int from, int to) {
 }
 
 /*
+ * Get a policy representing the current process
+ */
+static int userId = -1;
+static PolicyObject* curTag = NULL;
+int agateJniGetCurrentProcessPolicy(JNIEnv* env) {
+	int id = agate_get_userId();
+
+	if(id == userId) {
+		ALOGI("returning cache of current tag for userid %d",id);
+		return (int)curTag;
+	}
+
+	userId = id;
+
+	if(id == -1)
+		curTag = NULL;
+	else {
+		ArrayObject* readers = dvmAllocPrimitiveArray('I', 1, 0);
+		((int*)readers->contents)[0];
+		curTag = agate_create_policy(readers, NULL);
+		dvmReleaseTrackedAlloc(readers, NULL);
+	}
+
+	ALOGI("returning new version of tag for userid %d",id);
+	return (int)curTag;
+}
+
+/*
  * Gets the Policy on a socket
  */
 int agateJniGetSocketPolicy(JNIEnv* env, jobject java_fd) {
@@ -124,12 +152,19 @@ int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
  * Encodes a policy as a stream of bytes (Serializes)
  */
 char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
-
+    ALOGI("starting JniEncodePolicy");
     PolicyObject* p = (PolicyObject*) tag;
-    u4 v_size = p->readers->length;
+    if(p == NULL) {
+        char* out = (char*)malloc(sizeof(int));
+	_add_int(out, 0);
+ 	*size = sizeof(int);
+        ALOGI("ending JnieEncodePolicy with trivial policy encoding");
+        return out;
+    }
 
+    int v_size = p->readers->length;
     /* Compute total length of the serialized policy */
-    u4 total_length = v_size * sizeof(u4) + 2 * sizeof(u4); // encode also the vector size and total_length
+    u4 total_length = v_size * sizeof(u4) + 2*sizeof(u4); // encode also the vector size and total_length
 
     /* Allocate memory */
     char* bytes = (char*)malloc(total_length);
@@ -143,6 +178,7 @@ char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
 
     // TODO: add writers
     *size = total_length;
+    ALOGI("finishing JniEncodePolicy");
     return bytes;
 }
 
@@ -150,10 +186,11 @@ char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
  * De-codes a policy from a stream of bytes (De-serialization)
  */
 int agateJniDecodePolicy(JNIEnv* env, char* s) {
+	ALOGI("starting agateJniDecodePolicy");
     // TODO: for now only the readers
     u4 n_r;
     s = _get_int(s, (int*)&n_r); // get nr. of readers
-
+	ALOGI("have %d readers", n_r);
     /* Allocate space for a new policy */
     PolicyObject* p = (PolicyObject*) dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
 
@@ -172,7 +209,7 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
     for (u4 i = 0; i < n_r; i++) {
         s = _get_int(s, (int*)(void*)p->readers->contents + i);
     }
-
+	ALOGI("finished decoding");
     return (int)p;
 }
 
@@ -207,11 +244,11 @@ void agateJniAddArrayPolicy(JNIEnv* env, jobject obj, int tag) {
     arrObj->taint.tag = (u4)tag;
 }
 
+void agateJniPrintPolicy(int tag) {
+	agate_print_policy((PolicyObject*)tag);
+}
+
 /* Get the identity of the logged in user */
 int agateJniGetCertificate(JNIEnv* env) {
     return agate_get_userId();
-}
-
-void agateJniPrintPolicy(int tag) {
-    agate_print_policy((PolicyObject*)tag);
 }

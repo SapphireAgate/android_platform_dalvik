@@ -757,15 +757,16 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFile(const u4* a
     u4 otag;
     int fd = (int)args[0]; // args[0] = the file descriptor
     u4 tag = args[1];      // args[1] = the taint tag
-
+//TODO: this doesn't work cross address spaces
     otag = getPolicyXattr(fd);
 
-    if (tag) {
+    u4 newTag = agate_merge_policies(otag, tag);
+    if (newTag) {
 	ALOGI("AgateLog: addPolicyFile(%d): adding 0x%08x to 0x%08x = 0x%08x",
-		fd, tag, otag, tag | otag);
+		fd, tag, otag, newTag);
     }
 
-    setPolicyXattr(fd, tag | otag);
+    setPolicyXattr(fd, newTag);
 
     RETURN_VOID();
 }
