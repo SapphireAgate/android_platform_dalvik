@@ -111,11 +111,11 @@ int agateJniGetCurrentProcessPolicy(JNIEnv* env) {
 
 	userId = id;
 
-	if(id == -1)
+	if(id == -1) {
 		curTag = NULL;
-	else {
+	} else {
 		ArrayObject* readers = dvmAllocPrimitiveArray('I', 1, 0);
-		((int*)readers->contents)[0];
+		((int*)readers->contents)[0] = id;
 		curTag = agate_create_policy(readers, NULL);
 		dvmReleaseTrackedAlloc(readers, NULL);
 	}
