@@ -122,7 +122,6 @@ int agate_merge_policies(int tag1, int tag2)
 /* Checks if can flow from tag1 to tag2 */
 bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
 {
-	ALOGI("call to can flow");
     assert(p1 != NULL);
     assert(p2 != NULL);
 
@@ -142,18 +141,14 @@ bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
 
     bool result = true;
     for (u4 i = 0; i < toPolicy->readers->length; i++) {
-		ALOGI("making sure %d can read data",toReaders[i]);
         result = false;
         for (u4 j = 0; j < fromPolicy->readers->length; j++) {
-			ALOGI("checking %d",fromReaders[j]);
             if (toReaders[i] == fromReaders[j]) {
-				ALOGI("found");
                 result = true;
                 break;
             }
         }
         if (result == false) {
-			ALOGI("didn't find");
             break;
         }
     }

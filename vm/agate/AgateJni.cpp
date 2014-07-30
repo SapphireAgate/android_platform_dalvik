@@ -105,7 +105,6 @@ int agateJniGetCurrentProcessPolicy(JNIEnv* env) {
 	int id = agate_get_userId();
 
 	if(id == userId) {
-		ALOGI("returning cache of current tag for userid %d",id);
 		return (int)curTag;
 	}
 
@@ -120,7 +119,6 @@ int agateJniGetCurrentProcessPolicy(JNIEnv* env) {
 		dvmReleaseTrackedAlloc(readers, NULL);
 	}
 
-	ALOGI("returning new version of tag for userid %d",id);
 	return (int)curTag;
 }
 
@@ -152,13 +150,11 @@ int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
  * Encodes a policy as a stream of bytes (Serializes)
  */
 char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
-    ALOGI("starting JniEncodePolicy");
     PolicyObject* p = (PolicyObject*) tag;
     if(p == NULL) {
         char* out = (char*)malloc(sizeof(int));
 	_add_int(out, 0);
  	*size = sizeof(int);
-        ALOGI("ending JnieEncodePolicy with trivial policy encoding");
         return out;
     }
 
@@ -178,7 +174,6 @@ char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
 
     // TODO: add writers
     *size = total_length;
-    ALOGI("finishing JniEncodePolicy");
     return bytes;
 }
 
@@ -186,11 +181,9 @@ char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
  * De-codes a policy from a stream of bytes (De-serialization)
  */
 int agateJniDecodePolicy(JNIEnv* env, char* s) {
-	ALOGI("starting agateJniDecodePolicy");
     // TODO: for now only the readers
     u4 n_r;
     s = _get_int(s, (int*)&n_r); // get nr. of readers
-	ALOGI("have %d readers", n_r);
     /* Allocate space for a new policy */
     PolicyObject* p = (PolicyObject*) dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
 
@@ -209,7 +202,6 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
     for (u4 i = 0; i < n_r; i++) {
         s = _get_int(s, (int*)(void*)p->readers->contents + i);
     }
-	ALOGI("finished decoding");
     return (int)p;
 }
 
