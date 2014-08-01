@@ -9,7 +9,7 @@ HANDLE_OPCODE(OP_REM_DOUBLE /*vAA, vBB, vCC*/)
         SET_REGISTER_DOUBLE(vdst,
             fmod(GET_REGISTER_DOUBLE(vsrc1), GET_REGISTER_DOUBLE(vsrc2)));
 /* ifdef WITH_TAINT_TRACKING */
-        SET_REGISTER_TAINT_DOUBLE(vdst,agate_merge_policies
+        SET_REGISTER_TAINT_DOUBLE(vdst,AGATE_MERGE_POLICIES
 	    (GET_REGISTER_TAINT_DOUBLE(vsrc1),GET_REGISTER_TAINT_DOUBLE(vsrc2)));
 /* endif */
     }

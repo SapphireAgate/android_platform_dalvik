@@ -46,7 +46,7 @@ static void Dalvik_dalvik_system_Taint_addTaintString(const u4* args,
 
     if (strObj) {
         value = strObj->array();
-	value->taint.tag = agate_merge_policies(value->taint.tag, tag);
+	value->taint.tag = AGATE_MERGE_POLICIES(value->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -63,7 +63,7 @@ static void Dalvik_dalvik_system_Taint_addTaintObjectArray(const u4* args,
         if (tag != 0) {
             ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintObjectArray] adding taint(%p) on object array", (void*) tag);
         }
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -80,7 +80,7 @@ static void Dalvik_dalvik_system_Taint_addTaintBooleanArray(const u4* args,
         if (tag != 0) {
             ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintBooleanArray] adding taint(%p) on object array", (void*) tag);
         }
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -97,7 +97,7 @@ static void Dalvik_dalvik_system_Taint_addTaintCharArray(const u4* args,
         if (tag != 0) {
             ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintCharArray] adding taint(%p) on char array", (void*) tag);
         }
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -114,7 +114,7 @@ static void Dalvik_dalvik_system_Taint_addTaintByteArray(const u4* args,
         if (tag != 0) {
             ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintByteArray] adding taint(%p) on byte array", (void*) tag);
         }
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -131,7 +131,7 @@ static void Dalvik_dalvik_system_Taint_addTaintIntArray(const u4* args,
         if (tag != 0) {
             ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintIntArray] adding taint(%p) on int array", (void*) tag);
         }
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -145,7 +145,7 @@ static void Dalvik_dalvik_system_Taint_addTaintShortArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -159,7 +159,7 @@ static void Dalvik_dalvik_system_Taint_addTaintLongArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -173,7 +173,7 @@ static void Dalvik_dalvik_system_Taint_addTaintFloatArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -187,7 +187,7 @@ static void Dalvik_dalvik_system_Taint_addTaintDoubleArray(const u4* args,
     ArrayObject *arr = (ArrayObject *) args[0];
     u4 tag = args[1];
     if (arr) {
-	arr->taint.tag = agate_merge_policies(arr->taint.tag, tag);
+	arr->taint.tag = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
     }
     RETURN_VOID();
 }
@@ -202,7 +202,7 @@ static void Dalvik_dalvik_system_Taint_addTaintBoolean(const u4* args,
     u4 tag     = args[1];	 /* the tag to add */
     u4* rtaint = (u4*) &args[2]; /* pointer to return taint tag */
     u4 vtaint  = args[3];	 /* the existing taint tag on val */
-    *rtaint = agate_merge_policies(vtaint, tag);
+    *rtaint = AGATE_MERGE_POLICIES(vtaint, tag);
     RETURN_BOOLEAN(val);
 }
 
@@ -219,7 +219,7 @@ static void Dalvik_dalvik_system_Taint_addTaintChar(const u4* args,
     if (tag != 0) {
         ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintChar] adding taint(%p) on char", (void*) tag);
     }
-    *rtaint = agate_merge_policies(vtaint, tag);
+    *rtaint = AGATE_MERGE_POLICIES(vtaint, tag);
     RETURN_CHAR(val);
 }
 
@@ -236,7 +236,7 @@ static void Dalvik_dalvik_system_Taint_addTaintByte(const u4* args,
     if (tag != 0) {
         ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintByte] adding taint(%p) on byte", (void*) tag);
     }
-    *rtaint = agate_merge_policies(vtaint, tag);
+    *rtaint = AGATE_MERGE_POLICIES(vtaint, tag);
     RETURN_BYTE(val);
 }
 
@@ -253,7 +253,7 @@ static void Dalvik_dalvik_system_Taint_addTaintInt(const u4* args,
     if (tag != 0) {
         ALOGW("AgateLog: [Dalvik_dalvik_system_Taint_addTaintInt] adding taint(%p) on int", (void*) tag);
     }
-    *rtaint = agate_merge_policies(vtaint, tag);
+    *rtaint = AGATE_MERGE_POLICIES(vtaint, tag);
     RETURN_INT(val);
 }
 
@@ -267,7 +267,7 @@ static void Dalvik_dalvik_system_Taint_addTaintShort(const u4* args,
     u4 tag     = args[1];	  /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
-    *rtaint = agate_merge_policies(vtaint, tag);
+    *rtaint = AGATE_MERGE_POLICIES(vtaint, tag);
     RETURN_SHORT(val);
 }
 
@@ -282,7 +282,7 @@ static void Dalvik_dalvik_system_Taint_addTaintLong(const u4* args,
     u4* rtaint = (u4*) &args[3];     /* pointer to return taint tag */
     u4 vtaint  = args[4];	     /* the existing taint tag on val */
     memcpy(&val, &args[0], 8);	     /* EABI prevents direct store */
-    *rtaint = agate_merge_policies(vtaint, tag);
+    *rtaint = AGATE_MERGE_POLICIES(vtaint, tag);
     RETURN_LONG(val);
 }
 
@@ -296,7 +296,7 @@ static void Dalvik_dalvik_system_Taint_addTaintFloat(const u4* args,
     u4 tag     = args[1];	  /* the tag to add */
     u4* rtaint = (u4*) &args[2];  /* pointer to return taint tag */
     u4 vtaint  = args[3];	  /* the existing taint tag on val */
-    *rtaint = agate_merge_policies(vtaint, tag);
+    *rtaint = AGATE_MERGE_POLICIES(vtaint, tag);
     RETURN_INT(val);		  /* Be opaque; RETURN_FLOAT doesn't work */
 }
 
@@ -311,7 +311,7 @@ static void Dalvik_dalvik_system_Taint_addTaintDouble(const u4* args,
     u4* rtaint = (u4*) &args[3];     /* pointer to return taint tag */
     u4 vtaint  = args[4];	     /* the existing taint tag on val */
     memcpy(&val, &args[0], 8);	     /* EABI prevents direct store */
-    *rtaint = agate_merge_policies(vtaint, tag);
+    *rtaint = AGATE_MERGE_POLICIES(vtaint, tag);
     RETURN_LONG(val);		     /* Be opaque; RETURN_DOUBLE doesn't work */
 }
 
@@ -647,7 +647,7 @@ static void Dalvik_dalvik_system_Taint_addTaintFile(const u4* args,
 
     otag = getTaintXattr(fd);
 
-	u4 newtag = agate_merge_policies(otag, tag);
+	u4 newtag = AGATE_MERGE_POLICIES(otag, tag);
     if (tag) {
 	ALOGI("TaintLog: addTaintFile(%d): adding 0x%08x to 0x%08x = 0x%08x",
 		fd, tag, otag, newtag);

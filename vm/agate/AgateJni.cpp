@@ -83,13 +83,9 @@ static int _get_fd_from_filedescriptor(JNIEnv* env, jobject java_fd) {
  * Checks if data can flow
  */
 bool agateJniCanFlow(JNIEnv* env, int from, int to) {
-   if (from == 0 && to == 0)
-       return true;
-
    if (from == 0)
        return true;
 
-   //TODO: solve this case
    if (to == 0)
        return false; 
 

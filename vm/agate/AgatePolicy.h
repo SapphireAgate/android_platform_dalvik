@@ -10,6 +10,8 @@
 #define AGATE_SOCKET_POLICIES_TABLE_SIZE 32 /* number of sockets */
 #define AGATE_TAG_POLICIES_TABLE_SIZE 32 /* number of policies */
 
+# define AGATE_MERGE_POLICIES(_tag1, _tag2)	(_tag1?(_tag2?agate_merge_policies(_tag1, _tag2):_tag1):_tag2)
+
 /* The structure of a policy.
  *
  * Currently, a policy is defined in terms of User principals. A User

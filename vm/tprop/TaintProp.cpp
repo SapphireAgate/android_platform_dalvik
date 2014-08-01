@@ -120,14 +120,14 @@ void addObjectTaint(Object* obj, const char* descriptor, u4 tag)
 	/* Get the taint from the array */
 	arrObj = (ArrayObject*) obj;
 	if (arrObj != NULL) {
-	    arrObj->taint.tag = agate_merge_policies(arrObj->taint.tag, tag);
+	    arrObj->taint.tag = AGATE_MERGE_POLICIES(arrObj->taint.tag, tag);
 	}
     } 
     
     if (strcmp(descriptor, "Ljava/lang/String;") == 0) {
 	arrObj = ((StringObject*) obj)->array();
 	if (arrObj != NULL) {
-	    arrObj->taint.tag = agate_merge_policies(arrObj->taint.tag, tag);
+	    arrObj->taint.tag = AGATE_MERGE_POLICIES(arrObj->taint.tag, tag);
 	} /* else, empty string? don't worry about it */
     } 
 
@@ -162,14 +162,14 @@ void setReturnTaint(u4 tag, u4* rtaint, JValue* pResult,
 	case 'F':
 	case 'D':
 	    /* Easy case */
-	    *rtaint = agate_merge_policies(*rtaint, tag);
+	    *rtaint = AGATE_MERGE_POLICIES(*rtaint, tag);
 	    break;
 	case '[':
 	    /* Best we can do is taint the array, however
 	     * this is not right for "[[" or "[L" */
 	    arrObj = (ArrayObject*) pResult->l;
 	    if (arrObj != NULL) {
-		arrObj->taint.tag = agate_merge_policies(arrObj->taint.tag, tag);
+		arrObj->taint.tag = AGATE_MERGE_POLICIES(arrObj->taint.tag, tag);
 	    } /* else, method returning null pointer */
 	    break;
 	case 'L':
@@ -179,12 +179,12 @@ void setReturnTaint(u4 tag, u4* rtaint, JValue* pResult,
 		if (strcmp(descriptor, "Ljava/lang/String;") == 0) {
 		    arrObj = ((StringObject*) obj)->array();
 		    if (arrObj != NULL) {
-			arrObj->taint.tag = agate_merge_policies(arrObj->taint.tag, tag);
+			arrObj->taint.tag = AGATE_MERGE_POLICIES(arrObj->taint.tag, tag);
 		    } /* else, empty string?, don't worry about it */
 		} else {
 		    /* TODO: What about classes derived from String? */
 		    /* Best we can do is to taint the object ref */
-		    *rtaint = agate_merge_policies(*rtaint, tag);
+		    *rtaint = AGATE_MERGE_POLICIES(*rtaint, tag);
 		}
 	    }
 	    break;
@@ -312,15 +312,15 @@ void addTaintToField(Field* field, Object* obj, u4 tag)
 {
     if (dvmIsStaticField(field)) {
 	StaticField* sfield = (StaticField*) field;
-	tag = agate_merge_policies(tag, dvmGetStaticFieldTaint(sfield));
+	tag = AGATE_MERGE_POLICIES(tag, dvmGetStaticFieldTaint(sfield));
 	dvmSetStaticFieldTaint(sfield, tag);
     } else {
 	InstField* ifield = (InstField*) field;
 	if (field->signature[0] == 'J' || field->signature[0] == 'D') {
-	    tag = agate_merge_policies(tag, dvmGetFieldTaintWide(obj, ifield->byteOffset));
+	    tag = AGATE_MERGE_POLICIES(tag, dvmGetFieldTaintWide(obj, ifield->byteOffset));
 	    dvmSetFieldTaintWide(obj, ifield->byteOffset, tag);
 	} else {
-	    tag = agate_merge_policies(tag, dvmGetFieldTaint(obj, ifield->byteOffset));
+	    tag = AGATE_MERGE_POLICIES(tag, dvmGetFieldTaint(obj, ifield->byteOffset));
 	    dvmSetFieldTaint(obj, ifield->byteOffset, tag);
 	}
     }
@@ -501,7 +501,7 @@ u4 getParamEntryTaint(const char* entry, const u4* args, const Method* method)
 	    case 'L':
 		/* use both the object reference taint and Object taint */
 		tag = args[aIdx+method->insSize+1];
-		tag = agate_merge_policies(tag, getObjectTaint((Object*)args[aIdx], pDesc));
+		tag = AGATE_MERGE_POLICIES(tag, getObjectTaint((Object*)args[aIdx], pDesc));
 		break;
 	    default:
 		ALOGW("TaintPolicy: unknown parameter type for %s", entry);
@@ -656,7 +656,7 @@ u4 propMethodProfile(const u4* args, const Method* method)
 	if (tag) {
 	    //LOGD("TaintPolicy: tag = %d %s -> %s",
 	    //	    tag, entry->from, entry->to);
-	    rtaint = agate_merge_policies(rtaint, addEntryTaint(tag, entry->to, args, method));
+	    rtaint = AGATE_MERGE_POLICIES(rtaint, addEntryTaint(tag, entry->to, args, method));
 	}
 
     }
@@ -735,12 +735,12 @@ void dvmTaintPropJniMethod(const u4* args, JValue* pResult, const Method* method
      *	 interleaving of taint tags makes it transparent
      */
     for (i = tStart; i <= tEnd; i++) {
-	tag = agate_merge_policies(tag, args[i]);
+	tag = AGATE_MERGE_POLICIES(tag, args[i]);
     }
 
     /* If not static, pull any taint from the "this" object */
     if (!dvmIsStaticMethod(method)) {
-	tag = agate_merge_policies(tag, getObjectTaint((Object*)args[0], method->clazz->descriptor));
+	tag = AGATE_MERGE_POLICIES(tag, getObjectTaint((Object*)args[0], method->clazz->descriptor));
     }
 
     /* Union taint from Objects we care about */
@@ -753,7 +753,7 @@ void dvmTaintPropJniMethod(const u4* args, JValue* pResult, const Method* method
 	} 
 	
 	if (desc[0] == '[' || desc[0] == 'L') {
-	    tag = agate_merge_policies(tag, getObjectTaint((Object*) args[i], desc));
+	    tag = AGATE_MERGE_POLICIES(tag, getObjectTaint((Object*) args[i], desc));
 	}
 
 	if (desc[0] == 'J' || desc[0] == 'D') {
@@ -763,7 +763,7 @@ void dvmTaintPropJniMethod(const u4* args, JValue* pResult, const Method* method
     }
 
     /* Look at the taint policy profiles (may have return taint) */
-    tag = agate_merge_policies(tag, propMethodProfile(args, method));
+    tag = AGATE_MERGE_POLICIES(tag, propMethodProfile(args, method));
 
     /* Update return taint according to the return type */
     if (tag) {

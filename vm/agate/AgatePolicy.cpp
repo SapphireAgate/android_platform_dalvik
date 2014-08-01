@@ -122,14 +122,18 @@ int agate_merge_policies(int tag1, int tag2)
 /* Checks if can flow from tag1 to tag2 */
 bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
 {
-    assert(p1 != NULL);
-    assert(p2 != NULL);
-
-
-    /* TODO: Hack! If no policy */
-    if (fromPolicy == NULL || toPolicy == NULL) {
+    if (fromPolicy == 0) {
+        ALOGI("can flow as no policy on data");
         return true;
     }
+
+    if (toPolicy == 0) {
+        ALOGI("can't flow as target is not logged in");
+        return false; 
+    }
+
+    assert(p1 != NULL);
+    assert(p2 != NULL);
 
     /*
      * Confidentiality check: Check if readers in to policy
@@ -138,6 +142,17 @@ bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
 
     int* fromReaders = (int*)(void*)fromPolicy->readers->contents;
     int* toReaders = (int*)(void*)toPolicy->readers->contents;
+
+    ALOGI("Complex can flow case, readers allowed to use data:");
+    for(u4 i = 0; i < fromPolicy->readers->length; i++) {
+        ALOGI("%d",fromReaders[i]);
+    }
+    ALOGI("potential readers of data");
+    for(u4 i = 0; i < toPolicy->readers->length; i++) {
+        ALOGI("%d",toReaders[i]);
+    }
+
+
 
     bool result = true;
     for (u4 i = 0; i < toPolicy->readers->length; i++) {
