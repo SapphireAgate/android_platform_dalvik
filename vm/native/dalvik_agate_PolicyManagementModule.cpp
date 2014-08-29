@@ -5,6 +5,7 @@
 #include "native/InternalNativePriv.h"
 #include "attr/xattr.h"
 #include "agate/AgatePolicy.h"
+#include "agate/AgateUser.h"
 
 #include <cutils/atomic.h> /* use common Android atomic ops */
 #include <errno.h>
@@ -27,6 +28,19 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
     RETURN_BOOLEAN(result);
 }
 
+/*
+ * Returns the unforgeable certificate (for now just the id of the currently
+ * logged in user) that the current process was given.
+ *
+ * public static int getCertificate()
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_getCertificate(const u4* args,
+    JValue* pResult)
+{
+    int result = agate_get_userId();
+    RETURN_INT(result);
+}
+
 /* merge two policies */
 static void Dalvik_dalvik_agate_PolicyManagementModule_mergePolicies(const u4* args,
     JValue* pResult)
@@ -47,9 +61,13 @@ static void _add_policy_string(StringObject* strObj, u4 tag) {
 	    value->taint.tag = tag;
         } else {
             // merge the two policies
-            int m = AGATE_MERGE_POLICIES(value->taint.tag, tag);
-            value->taint.tag = m;
-            agate_release_policy(m);
+            u4 m = AGATE_MERGE_POLICIES(value->taint.tag, tag);
+            if (m != value->taint.tag && m != tag) {
+                value->taint.tag = m;
+                agate_release_policy(m); // safe to release
+            } else {
+                value->taint.tag = m;
+            }
         }
     }
 }
@@ -100,9 +118,15 @@ static void _add_policy_array(ArrayObject* arr, u4 tag)
 	    arr->taint.tag = tag;
         } else {
             // merge the two policies
-            int m = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
-            arr->taint.tag = m;
-            agate_release_policy(m);
+            ALOGW("AgateLog: Merging %p with %p.", (void*)arr->taint.tag, (void*)tag);
+            u4 m = AGATE_MERGE_POLICIES(arr->taint.tag, tag);
+            ALOGW("AgateLog: Merged.");
+            if (arr->taint.tag != m && m != tag) {
+                arr->taint.tag = m;
+                agate_release_policy(m); // safe to release
+            } else {
+                arr->taint.tag = m;
+            }
         }
     }
 }
@@ -968,5 +992,7 @@ const DalvikNativeMethod dvm_dalvik_agate_PolicyManagementModule[] = {
         Dalvik_dalvik_agate_PolicyManagementModule_logPathFromFd},
     { "logPeerFromFd",  "(I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_logPeerFromFd},
+    { "getCertificate",  "()I",
+        Dalvik_dalvik_agate_PolicyManagementModule_getCertificate},
     { NULL, NULL, NULL },
 };

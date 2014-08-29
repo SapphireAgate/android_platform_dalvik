@@ -64,13 +64,13 @@ static int _get_fd_from_filedescriptor(JNIEnv* env, jobject java_fd) {
     //TODO: Is this expensive? Set a global variable?
     jclass clazz = (jclass)env->NewGlobalRef(env->FindClass("java/io/FileDescriptor"));
     if (clazz == NULL) {
-        ALOGW("[_get_fd_from_filedescriptor] Could not find class java.io.FileDEscriptor");
+        ALOGW("AgateLog: [_get_fd_from_filedescriptor] Could not find class java.io.FileDEscriptor");
         return -1;
     }
 
     jfieldID descriptor = env->GetFieldID(clazz, "descriptor", "I");
     if (descriptor == NULL) {
-        ALOGW("[_get_fd_from_filedescriptor] Could not get descriptor fieldID");
+        ALOGW("AgateLog: [_get_fd_from_filedescriptor] Could not get descriptor fieldID");
         return -1;
     }
 
@@ -98,32 +98,39 @@ bool agateJniCanFlow(JNIEnv* env, int from, int to) {
 static int userId = -1;
 static PolicyObject* curTag = NULL;
 int agateJniGetCurrentProcessPolicy(JNIEnv* env) {
-	int id = agate_get_userId();
+    int id = agate_get_userId();
 
-	if(id == userId) {
-		return (int)curTag;
-	}
+    if(id == userId) {
+        return (int)curTag;
+    }
 
-	userId = id;
+    userId = id;
 
-	if(id == -1) {
-		curTag = NULL;
-	} else {
-		ArrayObject* readers = dvmAllocPrimitiveArray('I', 1, 0);
-		((int*)readers->contents)[0] = id;
-		curTag = agate_create_policy(readers, NULL);
-		dvmReleaseTrackedAlloc(readers, NULL);
-	}
+    if(id == -1) {
+        curTag = NULL;
+    } else {
+        ArrayObject* readers = dvmAllocPrimitiveArray('I', 1, 0);
+        ((int*)(void*)readers->contents)[0] = id;
+        curTag = agate_create_policy(readers, NULL);
+        dvmReleaseTrackedAlloc(readers, NULL);
+    }
 
-	return (int)curTag;
+    return (int)curTag;
 }
 
 /*
  * Gets the Policy on a socket
  */
 int agateJniGetSocketPolicy(JNIEnv* env, jobject java_fd) {
-   int _fd = _get_fd_from_filedescriptor(env, java_fd);
-   return (int)agate_get_policy_on_socket(_fd);
+    int _fd = _get_fd_from_filedescriptor(env, java_fd);
+    return agate_get_policy_on_socket(_fd);
+}
+
+/* 
+ * Removes the policy from a socket
+ */
+void agateJniRemoveSocketPolicy(JNIEnv* env, jint fd) {
+    agate_remove_policy_from_socket(fd);
 }
 
 /*
@@ -144,32 +151,34 @@ int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
 
 /*
  * Encodes a policy as a stream of bytes (Serializes)
+ * - first 4 bytes in the stream represent the total length (in bytes) of the policy
+ * - the "size" parameter will contain the total length of the returned stream
  */
 char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
     PolicyObject* p = (PolicyObject*) tag;
     if(p == NULL) {
         char* out = (char*)malloc(sizeof(int));
-	_add_int(out, 0);
- 	*size = sizeof(int);
+	_add_int(out, 0);    // policy has size 0
+ 	*size = sizeof(int); // total length of stream has 4 bytes
         return out;
     }
 
     int v_size = p->readers->length;
     /* Compute total length of the serialized policy */
-    u4 total_length = v_size * sizeof(u4) + 2*sizeof(u4); // encode also the vector size and total_length
+    u4 p_size = v_size * sizeof(u4) + sizeof(u4); // encode also the vector size
 
     /* Allocate memory */
-    char* bytes = (char*)malloc(total_length);
+    char* bytes = (char*)malloc(p_size + sizeof(int));
 
     /* Add the  policy as a continuous stream */
-    char* q = _add_int(bytes, total_length); // TODO: add u4, but it's ok because sizeof(u4) = sizeof(int)
+    char* q = _add_int(bytes, p_size); // TODO: add u4, but it's ok because sizeof(u4) = sizeof(int)
     q = _add_int(q, v_size);
-    for (u4 i = 0; i < v_size; i++) {
+    for (int i = 0; i < v_size; i++) {
         q = _add_int(q, ((int*)(void*)p->readers->contents)[i]);
     }
 
     // TODO: add writers
-    *size = total_length;
+    *size = p_size + sizeof(int);
     return bytes;
 }
 
@@ -180,6 +189,8 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
     // TODO: for now only the readers
     u4 n_r;
     s = _get_int(s, (int*)&n_r); // get nr. of readers
+    ALOGW("AgateLog: [agateJniDecodePolicy] No readers: %d", (int) n_r);
+
     /* Allocate space for a new policy */
     PolicyObject* p = (PolicyObject*) dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
 
@@ -197,7 +208,9 @@ int agateJniDecodePolicy(JNIEnv* env, char* s) {
     /* Copy contents from readers argument */
     for (u4 i = 0; i < n_r; i++) {
         s = _get_int(s, (int*)(void*)p->readers->contents + i);
+        ALOGW("AgateLog: [agateJniDecodePolicy] Reader: %d", (int)(int*)(void*)p->readers->contents[i]);
     }
+
     return (int)p;
 }
 

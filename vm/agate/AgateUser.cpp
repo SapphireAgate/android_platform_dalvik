@@ -94,7 +94,7 @@ static void sendQuery(char buffer[256], char out[256])
 
 /* abort transaction and return */
 static void abortAndFail(bool inTransaction, const char* message) {
-    ALOGE("%s",message);
+    ALOGE("%s", message);
     if(inTransaction) {
         char buffer[256];
 	char out[256];
@@ -153,6 +153,7 @@ bool agate_login(char* username, char* password) {
         cur_username = strdup(username);
 	if(cur_username == NULL)
 	    return false;
+        ALOGE("User logged in. Current userId = %d, username = %s", cur_userId, cur_username);
 	return true;
     } else {
         //failed to parse return (presumably bad login attempt)
@@ -171,6 +172,7 @@ bool agate_add_user(char* username, char* password) {
         abortAndFail(false,"ERROR: UserMgmtModule: [addUser] at least one of the arguments is null.");
         return false;
     } else if(!validateName(username) || !validateName(password)) {
+        ALOGE("Name = %s; Pass = %s", username, password);
         abortAndFail(false,"ERROR: UserMgmtModule: [addUser] at least one of the arguments is invalid name.");
         return false;
     }

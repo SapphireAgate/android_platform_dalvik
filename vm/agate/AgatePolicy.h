@@ -7,8 +7,8 @@
 #include <string>
 #include <cutils/atomic.h> /* use common Android atomic ops */
 
-#define AGATE_SOCKET_POLICIES_TABLE_SIZE 32 /* number of sockets */
-#define AGATE_TAG_POLICIES_TABLE_SIZE 32 /* number of policies */
+#define AGATE_SOCKET_POLICIES_TABLE_SIZE 1024 /* number of sockets */
+//#define AGATE_TAG_POLICIES_TABLE_SIZE 32 /* number of policies */
 
 # define AGATE_MERGE_POLICIES(_tag1, _tag2)	(_tag1?(_tag2?agate_merge_policies(_tag1, _tag2):_tag1):_tag2)
 
@@ -51,20 +51,23 @@ int agate_merge_policies(int tag1, int tag2);
 bool agate_can_flow(PolicyObject* p1, PolicyObject* p2);
 /* Add a policy on a socket */
 void agate_add_policy_on_socket(int fd, PolicyObject* p);
+/* Remove the policy from a socket */
+void agate_remove_policy_from_socket(int fd);
 /* Retrieve the policy that has been set on a socket */
-PolicyObject* agate_get_policy_on_socket(int fd);
+int agate_get_policy_on_socket(int fd);
 
 
-/* A Tag is a pointer to a policy. */
-typedef struct Tag {
+/* A SocketTag is a mapping between a policy and a socket fd. */
+typedef struct SocketTag {
     PolicyObject* policy;
-} Tag;
+    int fd;
+} SocketTag;
 
 /* function of type HashCompareFunc */
-int hashcmpTags(const void* p1, const void* p2);
+int hashcmpSocketTags(const void* p1, const void* p2);
 /* function of type HashFreeFunc */
-void freeTag(void* t);
+void freeSocketTag(void* t);
 /* function of type HashUpdateFunc */
-void hashupdateTag(const void* oldTag, const void* newTag);
+void hashupdateSocketTag(const void* oldTag, const void* newTag);
 
 #endif /*_DALVIK_AGATEi_POLICY */

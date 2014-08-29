@@ -111,7 +111,7 @@ int main(int argc, char *argv[])
         setTaintXattr(argv[2], tag);
     } else if (argv[1][0] == 'a') {
         u4 old = getTaintXattr(argv[2]);
-        setTaintXattr(argv[2], agate_merge_policies(tag, old));
+        //setTaintXattr(argv[2], agate_merge_policies(tag, old));
     } else {
         usage(argv[0]);
     }

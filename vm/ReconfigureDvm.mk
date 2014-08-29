@@ -18,7 +18,7 @@ include $(CLEAR_VARS)
 dvm_os := $(TARGET_OS)
 dvm_arch := $(TARGET_ARCH)
 dvm_arch_variant := $(TARGET_ARCH_VARIANT)
-$(info $(dvm_arch_variant))
+#$(info $(dvm_arch_variant))
 include $(LOCAL_PATH)/Dvm.mk
 
 LOCAL_SHARED_LIBRARIES += \

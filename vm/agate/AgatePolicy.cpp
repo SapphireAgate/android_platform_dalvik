@@ -60,6 +60,7 @@ void agate_print_policy(PolicyObject* p) {
 /* Un-tracks the policy, it will be GC'ed */
 void agate_release_policy(int tag)
 {
+    ALOGW("AgateLog: [agate_release_policy] Releasing policy %p", (void*)tag);
     dvmReleaseTrackedAlloc((Object*) tag, NULL);
 }
 
@@ -123,12 +124,12 @@ int agate_merge_policies(int tag1, int tag2)
 bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
 {
     if (fromPolicy == 0) {
-        ALOGI("can flow as no policy on data");
+        //ALOGI("can flow as no policy on data");
         return true;
     }
 
     if (toPolicy == 0) {
-        ALOGI("can't flow as target is not logged in");
+        //ALOGI("can't flow as target is not logged in");
         return false; 
     }
 
@@ -136,27 +137,34 @@ bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
     assert(p2 != NULL);
 
     /*
-     * Confidentiality check: Check if readers in to policy
-     * are all included in the from policy
+     * Confidentiality check: Check if readers in _to_policy
+     * are all included in the _from_policy
      */
 
     int* fromReaders = (int*)(void*)fromPolicy->readers->contents;
     int* toReaders = (int*)(void*)toPolicy->readers->contents;
 
-    ALOGI("Complex can flow case, readers allowed to use data:");
+    ALOGI("AgateLog: [agate_can_flow] Complex can flow case, readers allowed to use data:");
     for(u4 i = 0; i < fromPolicy->readers->length; i++) {
-        ALOGI("%d",fromReaders[i]);
+        ALOGI("%d", fromReaders[i]);
     }
-    ALOGI("potential readers of data");
+
+    ALOGI("AgateLog: [agate_can_flow] Potential readers of data");
     for(u4 i = 0; i < toPolicy->readers->length; i++) {
-        ALOGI("%d",toReaders[i]);
+        ALOGI("%d", toReaders[i]);
     }
-
-
 
     bool result = true;
     for (u4 i = 0; i < toPolicy->readers->length; i++) {
         result = false;
+
+        // TODO: hard-coded ID
+        if (toReaders[i] == 1) {
+            // admin account is always a reader
+            result = true;
+            break;
+        }
+
         for (u4 j = 0; j < fromPolicy->readers->length; j++) {
             if (toReaders[i] == fromReaders[j]) {
                 result = true;
@@ -167,84 +175,127 @@ bool agate_can_flow(PolicyObject* fromPolicy, PolicyObject* toPolicy)
             break;
         }
     }
- 
+
     return result;
 }
 
 /* Add a policy on a socket */
 void agate_add_policy_on_socket(int fd, PolicyObject* p)
 {
-    Tag* tmpT = (Tag*) malloc(sizeof(Tag));
-    tmpT->policy = p;
+    /* Don't add if no policy */
+    if (p != NULL) {
+        SocketTag* tmpT = (SocketTag*) malloc(sizeof(SocketTag));
+        if (tmpT) {
+            tmpT->policy = p;
+            tmpT->fd = fd;
 
-    if (tmpT) {
-        dvmHashTableLock(gDvmAgate.socketPolicies);
-        dvmHashTableLookupAndUpdate(gDvmAgate.socketPolicies, fd, tmpT,
-                                    hashcmpTags, hashupdateTag, true);
-        ALOGI("AgateLog: [addPolicySocket(%d)] adding 0x%08x",
-                fd, (u4)tmpT->policy);
-        dvmHashTableUnlock(gDvmAgate.socketPolicies);
+            //ALOGW("AgateLog: [agate_add_policy_on_socket] Trying to add 0x%08x on fd: %d", (u4)tmpT->policy, fd);
+            dvmHashTableLock(gDvmAgate.socketPolicies);
+            SocketTag* t = (SocketTag*) dvmHashTableLookup(gDvmAgate.socketPolicies, fd, tmpT, hashcmpSocketTags, true);
+            if (t != tmpT) {
+                // element already in the hash table
+                t->policy = p;
+                free(tmpT);
+            }
+            dvmHashTableUnlock(gDvmAgate.socketPolicies);
+            ALOGW("AgateLog: [agate_add_policy_on_socket] added 0x%08x on fd: %d", (u4)t->policy, fd);
+        } else {
+            ALOGE("AgateLog: [agate_add_policy_on_socket] Could not allocate space for temporary SocketTag");
+        }
     }
 }
 
 /* Retrieve the policy that has been set on a socket */
-PolicyObject* agate_get_policy_on_socket(int fd)
+int agate_get_policy_on_socket(int fd)
 {
     PolicyObject* p = 0;
+    SocketTag* t;
+    SocketTag* tmpT = (SocketTag*) malloc(sizeof(SocketTag));
 
-    dvmHashTableLock(gDvmAgate.socketPolicies);
-    Tag* t = (Tag*) dvmHashMapLookup(gDvmAgate.socketPolicies, fd);
+    if (tmpT) {
+        tmpT->policy = NULL;
+        tmpT->fd = fd;
+
+        //ALOGW("AgateLog: [agate_get_policy_on_socket] Trying to get policy from fd: %d", fd);
+        dvmHashTableLock(gDvmAgate.socketPolicies);
+        t = (SocketTag*) dvmHashTableLookup(gDvmAgate.socketPolicies, fd, tmpT, hashcmpSocketTags, false);
+        dvmHashTableUnlock(gDvmAgate.socketPolicies);
+        free(tmpT);
+    } else {
+        ALOGE("AgateLog: [agate_get_policy_on_socket] Could not allocate space for temporary SocketTag");
+    }
 
     if (t != NULL) {
         p = t->policy;
     } else {
-        ALOGE("tried to get policy on socket without policy set fd:%d", fd);
+            //ALOGI("AgateLog: [agate_get_policy_on_socket] tried to get policy on socket without policy set fd:%d", fd);
     }
-
-    dvmHashTableUnlock(gDvmAgate.socketPolicies);
 
     if (p) {
-        ALOGI("AgateLog: [getPolicySocket(%d)] = 0x%08x", fd, (u4)p);
+        ALOGW("AgateLog: [agate_get_policy_on_socket(%d)] = 0x%08x", fd, (u4)p);
     }
 
-    return p;
+    return (int)p;
+}
+
+/* Remove the policy from the socket */
+void agate_remove_policy_from_socket(int fd)
+{
+    SocketTag* t;
+    SocketTag* tmpT = (SocketTag*) malloc(sizeof(SocketTag));
+    
+    if (tmpT) {
+        tmpT->policy = NULL;
+        tmpT->fd = fd;
+
+        dvmHashTableLock(gDvmAgate.socketPolicies);
+        t = (SocketTag*) dvmHashTableLookup(gDvmAgate.socketPolicies, fd, tmpT, hashcmpSocketTags, false);
+
+        if (t != NULL) {
+            agate_release_policy((int)t->policy);
+            dvmHashTableRemove(gDvmAgate.socketPolicies, fd, t);
+            ALOGW("AgateLog: [agate_remove_policy_from_socket] Removing policy: %p; socket = %d", (void*)t->policy, fd);
+            free(t);
+        }
+        dvmHashTableUnlock(gDvmAgate.socketPolicies);
+        free(tmpT);
+    } else { 
+        ALOGE("AgateLog: [agate_remove_policy_from_socket] Could not allocate space for temporary SocketTag");
+    }
 }
 
 /* Functions working on Tags */
 
 /* function of type HashCompareFunc */
-int hashcmpTags(const void* p1, const void* p2)
+int hashcmpSocketTags(const void* p1, const void* p2)
 {
-    Tag* t1 = (Tag*) p1;
-    Tag* t2 = (Tag*) p2;
-    return (u4) t1->policy - (u4) t2->policy;
+    SocketTag* t1 = (SocketTag*) p1;
+    SocketTag* t2 = (SocketTag*) p2;
+    return t1->fd - t2->fd;
 }
 
 /* function of type HashFreeFunc */
-void freeTag(void* t)
+void freeSocketTag(void* t)
 {
-    Tag* tag = (Tag*) t;
-    //agate_release_policy(tag->tag);
+    SocketTag* tag = (SocketTag*) t;
+    agate_release_policy((int)tag->policy);
     if (tag != NULL) {
 	free(tag);
     }
 }
 
 /* function of type HashUpdateFunc */
-void hashupdateTag(const void* oldTag, const void* newTag)
+void hashupdateSocketTag(const void* oldTag, const void* newTag)
 {
-    Tag* o = (Tag*) oldTag;
-    Tag* n = (Tag*) newTag;
+    ALOGW("Replacing a socket tag.");
+    /* Just replace the old one. No need to merge multiple policies on a socket
+     * (assume connection to one entity) */
+    SocketTag* o = (SocketTag*) oldTag;
+    SocketTag* n = (SocketTag*) newTag;
 
     assert(n != NULL);
     assert(o != NULL);
-    
-    // merge the two policies TODO: check of NULL; check if can free ...
-    PolicyObject* m = (PolicyObject*) agate_merge_policies((int) o->policy, (int) n->policy);
-    //agate_free_policy(o->tag);
-    //agate_free_policy(n->tag); // TODO: check this
 
-    o->policy = m;
-
-    free(n);
+    agate_release_policy((int)o->policy);
+    o->policy = n->policy;
 }

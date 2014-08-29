@@ -108,7 +108,8 @@ ifeq ($(WITH_HOST_DALVIK),true)
     dvm_arch := $(HOST_ARCH)
     # Note: HOST_ARCH_VARIANT isn't defined.
     dvm_arch_variant := $(HOST_ARCH)
-    WITH_JIT := true
+    #WITH_JIT := true
+    WITH_JIT := false
     include $(LOCAL_PATH)/Dvm.mk
 
     LOCAL_SHARED_LIBRARIES += libcrypto libssl libicuuc libicui18n

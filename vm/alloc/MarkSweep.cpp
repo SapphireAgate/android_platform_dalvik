@@ -323,15 +323,15 @@ static void scanArrayObject(const Object *obj, GcMarkContext *ctx)
 // begin WITH_SAPPHIRE_AGATE
     /* Scan for possible policy */
     PolicyObject* p = (PolicyObject*)((ArrayObject*)obj)->taint.tag;
-    //markObject(p, ctx);
+    markObject(p, ctx);
     if (p!=NULL) {
         ALOGW("AgateLog: [scanArrayObject] Trying to mark policy object in array %p at %p", (void*)obj, (void*)p);
         ALOGW("AgateLog: [scanArrayObject] Class of array's %p elements: %s", (void*)obj, obj->clazz->descriptor);
         // print array
-        ArrayObject* arrObj = (ArrayObject*) obj;
-        for (u4 i = 0; i < arrObj->length; i++) {
-            ALOGW("%c", ((char*)(arrObj->contents))[i]);
-        }
+        //ArrayObject* arrObj = (ArrayObject*) obj;
+        //for (u4 i = 0; i < arrObj->length; i++) {
+        //    ALOGW("%c", ((char*)(arrObj->contents))[i]);
+        //}
     }
 // end WITH_SAPPHIRE_AGATE
 }
