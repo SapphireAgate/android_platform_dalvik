@@ -475,7 +475,8 @@ static void scanPolicyObject(const Object* obj, GcMarkContext* ctx) {
 
     PolicyObject* p = (PolicyObject*) obj;
 
-    markObject(p->readers, ctx);
+    markObject(p->user_readers, ctx);
+    markObject(p->group_readers, ctx);
     ALOGW("AgateLog: [scanPolicyObject] Marked Policy Object at %p", (void*) obj);
 
     //markObject(p->writers, ctx);

@@ -6,6 +6,7 @@
 #include "attr/xattr.h"
 #include "agate/AgatePolicy.h"
 #include "agate/AgateUser.h"
+#include "AgateUtil.h"
 
 #include <cutils/atomic.h> /* use common Android atomic ops */
 #include <errno.h>
@@ -15,6 +16,15 @@
 
 #define FILE_XATTR_NAME "file.policy"
 
+/*
+ * Prints the contents of a policy 
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_printPolicy(const u4* args,
+    JValue* pResult)
+{
+    agate_print_policy(args[0]);
+    RETURN_VOID();
+}
 
 /*
  * Determines if data is allowed to flow from a policy to another 
@@ -24,7 +34,7 @@
 static void Dalvik_dalvik_agate_PolicyManagementModule_canFlow(const u4* args,
     JValue* pResult)
 {
-    bool result = agate_can_flow((PolicyObject*)args[0], (PolicyObject*)args[1]);
+    bool result = agate_can_flow(args[0], args[1]);
     RETURN_BOOLEAN(result);
 }
 
@@ -80,21 +90,86 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__(const u
 {
     StringObject *strObj = (StringObject*) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
-    //ALOGW("AgateLog: addPolicyString created policy: %d", (u4)p);
-
-    //std::set<std::string> v = *(p->readers);
-    //for (std::set<std::string>::iterator i = v.begin(); i != v.end(); i++) {
-    //    std::string e = *i;
-    //    ALOGW("AgateLog: addPolicyString reader: %s", (*i).c_str());
-    //}
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
 
     _add_policy_string(strObj, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
 
+    RETURN_VOID();
+}
+
+/* Makes of char stream out of String Objects */
+static char* _serialize_readers(ArrayObject* readers, int *size) {
+    char* s;
+    char* tmp;
+
+    *size = 0;
+    if (readers == NULL) {
+        *size = sizeof(int);
+        s = (char*)malloc(*size);
+        tmp = _agate_util_add_int(s, 0);
+        return s;
+    }
+
+    /* Compute size of stream */
+    for (unsigned int i = 0; i < readers->length; i++) {
+        Object* strObj = ((Object**) (void*) readers->contents)[i];
+        char* str = dvmCreateCstrFromString((StringObject*) strObj); 
+        *size += strlen(str);
+        free(str);
+    }
+
+    *size += readers->length + sizeof(int);
+    s = (char*)malloc(*size);
+    tmp = _agate_util_add_int(s, readers->length);
+
+    for (unsigned int i = 0; i < readers->length; i++) {
+        Object* strObj = ((Object**) (void*) readers->contents)[i];
+        char* str = dvmCreateCstrFromString((StringObject*) strObj); 
+        ALOGW("Adding reader: %s\n", str);
+        sprintf(tmp, "%s", str);
+        tmp += strlen(str);
+        *tmp++ = ' ';
+        free(str);
+    }
+
+    return s;
+}
+
+/*
+ * public static void addPolicyString(String str, String[] readers, String[] writers)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__S(const u4* args,
+    JValue* pResult)
+{
+    int u_size, g_size;
+    int t_len = 0;
+    StringObject *strObj = (StringObject*) args[0];
+
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
+
+    char* users_stream = _serialize_readers(user_readers, &u_size);
+    char* groups_stream = _serialize_readers(group_readers, &g_size);
+
+    if (user_readers != NULL)
+        t_len += user_readers->length;
+    if (group_readers != NULL)
+        t_len += group_readers->length;
+
+    char* out = get_users_and_groups_ids(users_stream, u_size, groups_stream, g_size, t_len);
+
+    PolicyObject* p = agate_create_policy_from_stream(out);
+    _add_policy_string(strObj, (u4)p);
+    agate_release_policy((u4)p); // safe to untrack 
+    //agate_print_policy((int)p);
+
+    free(users_stream);
+    free(groups_stream);
+    free(out);
     RETURN_VOID();
 }
 
@@ -132,20 +207,51 @@ static void _add_policy_array(ArrayObject* arr, u4 tag)
 }
 
 /*
- * public static void addPolicyObjectArray(Object[] array, String[] readers, String[] writers)
+ * public static void addPolicyObjectArray(Object[] array, int[] readers, int[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
 
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyObjectArray(Object[] array, String[] readers, String[] writers)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__S(const u4* args,
+    JValue* pResult)
+{
+    int u_size, g_size;
+    int t_len = 0;
+    ArrayObject *arr = (ArrayObject *) args[0];
+
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
+
+    char* users_stream = _serialize_readers(user_readers, &u_size);
+    char* groups_stream = _serialize_readers(group_readers, &g_size);
+    if (user_readers != NULL)
+        t_len += user_readers->length;
+    if (group_readers != NULL)
+        t_len += group_readers->length;
+    char* out = get_users_and_groups_ids(users_stream, u_size, groups_stream, g_size, t_len);
+
+    PolicyObject* p = agate_create_policy_from_stream(out);
+    _add_policy_array(arr, (u4)p);
+    agate_release_policy((u4)p); // safe to untrack 
+
+    free(users_stream);
+    free(groups_stream);
+    free(out);
     RETURN_VOID();
 }
 
@@ -161,20 +267,51 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__I(c
 }
 
 /*
- * public static void addPolicyBooleanArray(boolean[] array, String[] readers, String[] writers)
+ * public static void addPolicyBooleanArray(boolean[] array, int[] readers, int[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
 
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyBooleanArray(Object[] array, String[] readers, String[] writers)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__S(const u4* args,
+    JValue* pResult)
+{
+    int u_size, g_size;
+    int t_len = 0;
+    ArrayObject *arr = (ArrayObject *) args[0];
+
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
+
+    char* users_stream = _serialize_readers(user_readers, &u_size);
+    char* groups_stream = _serialize_readers(group_readers, &g_size);
+    if (user_readers != NULL)
+        t_len += user_readers->length;
+    if (group_readers != NULL)
+        t_len += group_readers->length;
+    char* out = get_users_and_groups_ids(users_stream, u_size, groups_stream, g_size, t_len);
+
+    PolicyObject* p = agate_create_policy_from_stream(out);
+    _add_policy_array(arr, (u4)p);
+    agate_release_policy((u4)p); // safe to untrack 
+
+    free(users_stream);
+    free(groups_stream);
+    free(out);
     RETURN_VOID();
 }
 
@@ -190,19 +327,50 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__I(
 }
 
 /*
- * public static void addPolicyCharArray(char[] array, String[] readers, String[] writers)
+ * public static void addPolicyCharArray(char[] array, int[] readers, int[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyCharArray(Object[] array, String[] readers, String[] writers)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__S(const u4* args,
+    JValue* pResult)
+{
+    int u_size, g_size;
+    int t_len = 0;
+    ArrayObject *arr = (ArrayObject *) args[0];
+
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
+
+    char* users_stream = _serialize_readers(user_readers, &u_size);
+    char* groups_stream = _serialize_readers(group_readers, &g_size);
+    if (user_readers != NULL)
+        t_len += user_readers->length;
+    if (group_readers != NULL)
+        t_len += group_readers->length;
+    char* out = get_users_and_groups_ids(users_stream, u_size, groups_stream, g_size, t_len);
+
+    PolicyObject* p = agate_create_policy_from_stream(out);
+    _add_policy_array(arr, (u4)p);
+    agate_release_policy((u4)p); // safe to untrack 
+
+    free(users_stream);
+    free(groups_stream);
+    free(out);
     RETURN_VOID();
 }
 
@@ -218,19 +386,50 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__I(con
 }
 
 /*
- * public static void addPolicyByteArray(byte[] array, String[] readers, String[] writers)
+ * public static void addPolicyByteArray(byte[] array, int[] readers, int[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
+    RETURN_VOID();
+}
+
+/*
+ * public static void addPolicyByteArray(byte[] array, String[] readers, String[] writers)
+ */
+static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__S(const u4* args,
+    JValue* pResult)
+{
+    int u_size, g_size;
+    int t_len = 0;
+    ArrayObject *arr = (ArrayObject *) args[0];
+
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
+
+    char* users_stream = _serialize_readers(user_readers, &u_size);
+    char* groups_stream = _serialize_readers(group_readers, &g_size);
+    if (user_readers != NULL)
+        t_len += user_readers->length;
+    if (group_readers != NULL)
+        t_len += group_readers->length;
+    char* out = get_users_and_groups_ids(users_stream, u_size, groups_stream, g_size, t_len);
+
+    PolicyObject* p = agate_create_policy_from_stream(out);
+    _add_policy_array(arr, (u4)p);
+    agate_release_policy((u4)p); // safe to untrack 
+
+    free(users_stream);
+    free(groups_stream);
+    free(out);
     RETURN_VOID();
 }
 
@@ -246,34 +445,34 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__I(con
 }
 
 /*
- * public static void addPolicyIntArray(int[] array, String[] readers, String[] writers)
+ * public static void addPolicyIntArray(int[] array, int[] readers, int[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyIntArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
     RETURN_VOID();
 }
 
 /*
- * public static void addPolicyShortArray(short[] array, String[] readers, String[] writers)
+ * public static void addPolicyShortArray(short[] array, int[] readers, int[] writers)
  */
 static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyShortArray(const u4* args,
     JValue* pResult)
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
     RETURN_VOID();
@@ -287,10 +486,10 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyLongArray(const 
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
     RETURN_VOID();
@@ -304,10 +503,10 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyFloatArray(const
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
     RETURN_VOID();
@@ -321,10 +520,10 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyDoubleArray(cons
 {
     ArrayObject *arr = (ArrayObject *) args[0];
 
-    ArrayObject* readers = (ArrayObject*) args[1];
-    ArrayObject* writers = (ArrayObject*) args[2];
+    ArrayObject* user_readers = (ArrayObject*) args[1];
+    ArrayObject* group_readers = (ArrayObject*) args[2];
 
-    PolicyObject* p = agate_create_policy(readers, writers);
+    PolicyObject* p = agate_create_policy(user_readers, group_readers);
     _add_policy_array(arr, (u4)p);
     agate_release_policy((u4)p); // safe to untrack
     RETURN_VOID();
@@ -896,22 +1095,32 @@ const DalvikNativeMethod dvm_dalvik_agate_PolicyManagementModule[] = {
         Dalvik_dalvik_agate_PolicyManagementModule_mergePolicies},
     { "addPolicyString",  "(Ljava/lang/String;[I[I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__},
+    { "addPolicyString",  "(Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__S},
     { "addPolicyString",  "(Ljava/lang/String;I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__I},
     { "addPolicyObjectArray",  "([Ljava/lang/Object;[I[I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__},
+    { "addPolicyObjectArray",  "([Ljava/lang/Object;[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__S},
     { "addPolicyObjectArray",  "([Ljava/lang/Object;I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyObjectArray__I},
     { "addPolicyBooleanArray",  "([Z[I[I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__},
+    { "addPolicyBooleanArray",  "([Z[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__S},
     { "addPolicyBooleanArray",  "([ZI)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyBooleanArray__I},
     { "addPolicyCharArray",  "([C[I[I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__},
+    { "addPolicyCharArray",  "([C[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__S},
     { "addPolicyCharArray",  "([CI)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyCharArray__I},
     { "addPolicyByteArray",  "([B[I[I)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__},
+    { "addPolicyByteArray",  "([B[Ljava/lang/String;[Ljava/lang/String;)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__S},
     { "addPolicyByteArray",  "([BI)V",
         Dalvik_dalvik_agate_PolicyManagementModule_addPolicyByteArray__I},
     { "addPolicyIntArray",  "([II)V",
@@ -994,5 +1203,7 @@ const DalvikNativeMethod dvm_dalvik_agate_PolicyManagementModule[] = {
         Dalvik_dalvik_agate_PolicyManagementModule_logPeerFromFd},
     { "getCertificate",  "()I",
         Dalvik_dalvik_agate_PolicyManagementModule_getCertificate},
+    { "printPolicy",  "(I)V",
+        Dalvik_dalvik_agate_PolicyManagementModule_printPolicy},
     { NULL, NULL, NULL },
 };

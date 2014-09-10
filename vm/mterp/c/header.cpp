@@ -20,7 +20,10 @@
 #include "mterp/Mterp.h"
 #include <math.h>                   // needed for fmod, fmodf
 #include "mterp/common/FindInterface.h"
+// begin WITH_SAPPHIRE_AGATE
 #include "agate/AgatePolicy.h"
+#include <sys/time.h>
+// end WITH_SAPPHIRE_AGATE
 
 /*
  * Configuration defines.  These affect the C implementations, i.e. the

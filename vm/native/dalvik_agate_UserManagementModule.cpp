@@ -17,6 +17,12 @@ static void Dalvik_dalvik_agate_UserManagementModule_getUserName(const u4* args,
     }
 }
 
+static void Dalvik_dalvik_agate_UserManagementModule_getUserID(const u4* args,
+    JValue* pResult)
+{
+    int r = agate_get_userId();
+    RETURN_INT(r);
+}
 
 /*
  * public static int loginImpl(String user, String password)
@@ -48,7 +54,6 @@ static void Dalvik_dalvik_agate_UserManagementModule_addUser(const u4* args,
         RETURN_INT(0);
     }
     RETURN_INT(-1);
-
 }
 
 /*
@@ -86,6 +91,8 @@ static void Dalvik_dalvik_agate_UserManagementModule_addUserToGroup(const u4* ar
 const DalvikNativeMethod dvm_dalvik_agate_UserManagementModule[] = {
         { "getUserName", "()Ljava/lang/String;",
         Dalvik_dalvik_agate_UserManagementModule_getUserName},
+        { "getUserID", "()I",
+        Dalvik_dalvik_agate_UserManagementModule_getUserID},
     	{ "login",  "(Ljava/lang/String;Ljava/lang/String;)I",
         Dalvik_dalvik_agate_UserManagementModule_login},
         { "addUser", "(Ljava/lang/String;Ljava/lang/String;)I",

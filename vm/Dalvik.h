@@ -90,6 +90,7 @@
 
 //begin WITH_SAPPHIRE_AGATE
 #include "agate/Agate.h"
+#include <sys/time.h>
 //end WITH_SAPPHIRE_AGATE
 
 

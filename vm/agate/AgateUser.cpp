@@ -1,16 +1,27 @@
+#include "Dalvik.h"
+
+#include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h> 
 #include <errno.h>
+#include <unistd.h>
 
 #include "agate/AgateUser.h"
+#include "agate/AgatePolicy.h"
+#include "AgateUtil.h"
 
 //values for the currently logged in user
 static char* cur_username = NULL;
 static int cur_userId = -1;
-static int sockfd = -1;
+//static int sockfd = -1;
+
+// hard-coded info about the UMS
+static const char* HOST = "howe.cs.washington.edu";
+static int PORT = 24068; 
 
 /* Verify a name is actually a name */
 static bool validateName(char* name) {
@@ -27,81 +38,50 @@ static bool validateName(char* name) {
     return true;
 }
 
-/* Send Query request */
-static void sendQuery(char buffer[256], char out[256])
-{
-    if(sockfd < 0) {
-        int portno;
-        struct sockaddr_in serv_addr;
-        struct hostent *server;
+/* Send Command request */
+static int _send_command(char* command, int command_len, char** out, int* out_len) {
+    struct sockaddr_in serv_addr;
+    struct hostent *server;
 
-        portno = 24068;
-        bzero(out, 256);
-        /* Create a socket point */
-        sockfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (sockfd < 0) {
-            ALOGE("ERROR: UserMgmtModule: cannot open socket %d %d",sockfd, errno);
-            strcpy(out,"-2");
-            return;
-        }
+    /* Create a socket point */
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        ALOGE("ERROR: UserMgmtModule: cannot open socket %d %d",sockfd, errno);
+        return -1;
+    }
     
-        //server = gethostbyname("localhost");
-        // TODO: This is hard-coded for now
-        /* Check if connectivity with server */
-        server = gethostbyname("dunbar.cs.washington.edu");
-        if (server == NULL) {
-            ALOGE("ERROR: UserMgmtModule: no such host\n");
-            strcpy(out,"-3");
-            return;
-        }
-
-        bzero((char *) &serv_addr, sizeof(serv_addr));
-        serv_addr.sin_family = AF_INET;
-        bcopy((char *)server->h_addr,
-        (char *)&serv_addr.sin_addr.s_addr, server->h_length);
-        serv_addr.sin_port = htons(portno);
-
-        /* Connect to the server */
-        if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) {
-            ALOGE("ERROR: UserMgmtModule: cannot connect to User Management Service %d",errno);
-            strcpy(out,"-4");
-            return;
-        }
+    // TODO: This is hard-coded for now
+    /* Check if connectivity with server */
+    server = gethostbyname(HOST);
+    if (server == NULL) {
+        ALOGE("ERROR: UserMgmtModule: no such host\n");
+        return -1;
     }
 
-    int n;
+    bzero((char *) &serv_addr, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
+    serv_addr.sin_port = htons(PORT);
+
+    /* Connect to the server */
+    if (connect(sockfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) {
+        ALOGE("ERROR: UserMgmtModule: cannot connect to User Management Service %d",errno);
+        return -1;
+    }
 
     /* Send message to the server */
-    n = write(sockfd,buffer,strlen(buffer));
-    if (n < 0) {
-        ALOGE("ERROR: UserMgmtModule: cannot write to socket open to User Management Service %d",errno);
-        strcpy(out,"-5");
-	sockfd = -1;
-        return;
-    }
+    _agate_util_write_x_bytes_to_socket(sockfd, command, command_len);
 
     /* Get server response */
-    bzero(out, 256);
-    n = read(sockfd, out, 255);
-    if (n < 0) {
-        ALOGE("ERROR: UserMgmtModule: cannot read from socket, response from User Management Service %d",errno);
-        strcpy(out,"-6");
-	sockfd = -1;
-        return;
-    }
-}
+    char* buf = _agate_util_read_x_bytes_from_socket(sockfd, sizeof(int));
+    *out_len = _agate_util_int_from_byte_array(buf);
+    free(buf);
+    *out = _agate_util_read_x_bytes_from_socket(sockfd, *out_len);
 
+    /* Close socket */
+    close(sockfd);
 
-/* abort transaction and return */
-static void abortAndFail(bool inTransaction, const char* message) {
-    ALOGE("%s", message);
-    if(inTransaction) {
-        char buffer[256];
-	char out[256];
-        bzero(buffer,256);
-	strcpy(buffer,"ROLLBACK");
-	sendQuery(buffer,out);
-    }
+    return 0;
 }
 
 /*
@@ -117,181 +97,135 @@ int agate_get_userId() {
 }
 
 /*
+ *  Command id 1.
  *  attempt to login as username using password, return true on success
  */
 bool agate_login(char* username, char* password) {
-
-    char buffer[256];
-    char out[256];
+    char* out;
+    char* command;
+    char* tmp;
+    int message_len, command_len, out_len;
 
     if (username == NULL || password == NULL) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [login] at least one of the arguments is null.");
+        ALOGE("ERROR: UserMgmtModule: [login] at least one of the arguments is null.");
 	return false;
     } else if(!validateName(username) || !validateName(password)) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [login] at least one of the arguments is invalid name.");
+        ALOGE("ERROR: UserMgmtModule: [login] at least one of the arguments is invalid name.");
 	return false;
     }
 
-    //perform check
-    bzero(buffer,256);
-    int ret = snprintf(buffer, 256, "SELECT userId FROM Users where username='%s' and password='%s'",
-		       username, password);
-    if(ret >= 256) {
-        abortAndFail(false, "ERROR: UserMgmtModule: [login] username password combination too long");
-	return false;
-    }
-    sendQuery(buffer, out);
+    /* Compose command for login */
+    message_len = strlen(username) + strlen(password) + 1; // 1 char for space between the two strings
+    command_len = message_len + sizeof(int) + 1;           // 1 char for command_type
+    command = (char*)malloc(command_len);
+    tmp = command;
+    *tmp++ = '1'; // command_type for login
+    tmp = _agate_util_add_int(tmp, message_len);
+    sprintf(tmp, "%s %s", username, password);
 
-    int userId = atoi(out);
+    /* Send command 1 = login */
+    _send_command(command, command_len, &out, &out_len);
+    free(command);
+
+    int userId = _agate_util_int_from_byte_array(out);
+    free(out);
+
     if(userId < 0) {
-        abortAndFail(false, "ERROR: UserMgmtModule: [login] query failed");
+        ALOGE("ERROR: UserMgmtModule: [login] query failed.");
 	return false;
-    } else if(userId > 0) {
+    }
+
+    if(userId > 0) {
         cur_userId = userId;
 	if(cur_username != NULL)
   	    free(cur_username);
         cur_username = strdup(username);
 	if(cur_username == NULL)
 	    return false;
-        ALOGE("User logged in. Current userId = %d, username = %s", cur_userId, cur_username);
+        ALOGW("User logged in. Current userId = %d, username = %s.", cur_userId, cur_username);
 	return true;
-    } else {
-        //failed to parse return (presumably bad login attempt)
-        return false;
     }
+
+    return false;
 }
 
 /*
  * Adds a user with the specified username and password, returns true on success
  */
 bool agate_add_user(char* username, char* password) {
-    char buffer[256];
-    char out[256];
+    char* out;
+    char* command;
+    char* tmp;
+    int message_len, command_len, out_len;
 
     if (username == NULL || password == NULL) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [addUser] at least one of the arguments is null.");
+        ALOGE("ERROR: UserMgmtModule: [addUser] at least one of the arguments is null.");
         return false;
     } else if(!validateName(username) || !validateName(password)) {
         ALOGE("Name = %s; Pass = %s", username, password);
-        abortAndFail(false,"ERROR: UserMgmtModule: [addUser] at least one of the arguments is invalid name.");
+        ALOGE("ERROR: UserMgmtModule: [addUser] at least one of the arguments is invalid name.");
         return false;
     }
+ 
+    /* Compose command for add_user */
+    message_len = strlen(username) + strlen(password) + 1; // 1 char for space between the two strings
+    command_len = message_len + sizeof(int) + 1;           // 1 char for command_type
+    command = (char*)malloc(command_len + 1);              // 1 char for null terminating sprintf
+    tmp = command;
+    *tmp++ = '2'; // command_type for add_user
+    tmp = _agate_util_add_int(tmp, message_len);
+    sprintf(tmp, "%s %s", username, password);
 
-    bzero(buffer,256);
-    strcpy(buffer,"START TRANSACTION;");
-    sendQuery(buffer,out);
-    if(atoi(out) != -1) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [addUser] couldn't contact database.");
-	return false;
-    }
+    /* Send command 2 = add_user */
+    _send_command(command, command_len, &out, &out_len);
+    free(command);
+    
+    int result = _agate_util_int_from_byte_array(out);
+    free(out);
 
-    //check that username is free
-    bzero(buffer,256);
-    int ret = snprintf(buffer, 256, "Select u.username From Users u Where u.username = '%s';",
-		       username);
-    if(ret >= 256) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUser] username too long.");
-	return false;
-    }
-    sendQuery(buffer, out);
-    if(strcmp(out,"-1") != 0) { //"-1" represents no result
-	ALOGW("%s", out);
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUser] username already used.");
-        return false;
-    }
-
-    // perform the insertion
-    bzero(buffer,256);
-    ret = snprintf(buffer, 256, "Insert Into Users(username, password) Values ('%s', '%s');", username, password);
-    if(ret >= 256) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUser] username, password combination too long.");
-	return false;
-    }
-    sendQuery(buffer, out);
-    if(atoi(out) != -1) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUser] couldn't contact database.");
-	return false;
-    }
-
-    //commit
-    bzero(buffer,256);
-    strcpy(buffer,"COMMIT;");
-    sendQuery(buffer,out);
-    if(atoi(out) != -1) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUser] couldn't contact database.");
-	return false;
-    }
-  
-    return true;
+    return result;
 }
-
 
 /*
  * add a group owned by current logged in user, returns true on success
  */
-bool agate_add_group(char* groupName) {
-
-    char buffer[256];
-    char out[256];
+bool agate_add_group(char* groupname) {
+    char* out;
+    char* command;
+    char* tmp;
+    int message_len, command_len, out_len;
 
     if(cur_userId == -1) {
-        abortAndFail(false, "ERROR: UserMgmtModule: [addGroup] no currently logged in user.");
+        ALOGE("ERROR: UserMgmtModule: [agate_add_group] no currently logged in user.");
 	return false;
     }
 
-    if (groupName == NULL) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [addGroup] group argument is null.");
+    if (groupname == NULL) {
+        ALOGE("ERROR: UserMgmtModule: [agate_add_group] group argument is null.");
         return false;
-    } else if(!validateName(groupName)) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [addGroup] group argument is invalid name.");
-        return false;
-    }
-
-    bzero(buffer,256);
-    strcpy(buffer,"START TRANSACTION;");
-    sendQuery(buffer,out);
-    if(atoi(out) != -1) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [addGroup] couldn't contact database.");
-	return false;
-    }
-
-    //check the groupname is free
-    bzero(buffer,256);
-    int ret = snprintf(buffer, 256, "Select g.groupName From Groups g Where g.groupName = '%s' and g.owner = %d;",
-		       groupName, cur_userId);
-    if(ret >= 256) {
-        abortAndFail(true, "ERROR: UserMgmtModule: [addGroup] groupname too long.");
-	return false;
-    }
-    sendQuery(buffer, out);
-    if(strcmp(out,"-1") != 0) {
-        abortAndFail(true, "ERROR: UserMgmtModule: [addGroup] groupName already used.");
+    } else if(!validateName(groupname)) {
+        ALOGE("ERROR: UserMgmtModule: [agate_add_group] group argument is invalid name.");
         return false;
     }
+    
+    /* Compose command for add_group */
+    message_len = sizeof(int) + strlen(groupname);
+    command_len = message_len + sizeof(int) + 1; // 1 char for command_type
+    command = (char*)malloc(command_len + 1);
+    tmp = command;
+    *tmp++ = '3'; // command_type for add_group
+    tmp = _agate_util_add_int(tmp, message_len);
+    tmp = _agate_util_add_int(tmp, cur_userId);
+    sprintf(tmp, "%s", groupname);
 
-    // perform the insertion
-    bzero(buffer,256);
-    ret = snprintf(buffer, 256, "Insert Into Groups(groupName, owner) Values ('%s', '%d');", groupName, cur_userId);
-    if(ret >= 256) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addGroup] groupname, groupid and ownerID combination too long.");
-	return false;
-    }
-    sendQuery(buffer, out);
-    if(atoi(out) != -1) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addGroup] couldn't contact database.");
-	return false;
-    }
+    /* Send command 3 = add_group */
+    _send_command(command, command_len, &out, &out_len);
+    free(command);
 
-    //commit
-    bzero(buffer,256);
-    strcpy(buffer,"COMMIT;");
-    sendQuery(buffer,out);
-    if(atoi(out) != -1) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addGroup] couldn't contact database.");
-	return false;
-    }  
+    int result = _agate_util_int_from_byte_array(out);
+    free(out);
 
-    return true;
+    return result;
 }
 
 /*
@@ -299,108 +233,146 @@ bool agate_add_group(char* groupName) {
  * is not owner of group. Returns true on success
  */
 bool agate_add_user_to_group(char* username, char* group) {
+    char* out;
+    char* command;
+    char* tmp;
+    int message_len, command_len, out_len;
 
     if(cur_userId == -1) {
-        abortAndFail(false, "ERROR: UserMgmtModule: [addUserToGroup] no currently logged in user.");
+        ALOGE("ERROR: UserMgmtModule: [addUserToGroup] no currently logged in user.");
 	return false;
     }
-
-    char buffer[256];
-    char out[256];
 
     if (username == NULL || group == NULL) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [addUserToGroup] at least one argument is null.");
+        ALOGE("ERROR: UserMgmtModule: [addUserToGroup] at least one argument is null.");
         return false;
     } else if(!validateName(username) || !validateName(group)) {
-        abortAndFail(false,"ERROR: UserMgmtModule: [addUserToGroup] at least one of the arguments is invalid name.");
+        ALOGE("ERROR: UserMgmtModule: [addUserToGroup] at least one of the arguments is invalid name.");
         return false;
     }
 
-    bzero(buffer,256);
-    strcpy(buffer, "START TRANSACTION;");
-    sendQuery(buffer,out);
-    if(atoi(out) != -1) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] couldn't contact database.");
-	return false;
-    }
+    /* Compose command for add_user_to_group */
+    message_len = sizeof(int) + 1 + strlen(username) + 1 + strlen(group);
+    command_len = message_len + sizeof(int) + 1; // 1 char for command_type
+    command = (char*)malloc(command_len + 1);
+    tmp = command;
+    *tmp++ = '4'; // command_type for add_user_to_group
+    tmp = _agate_util_add_int(tmp, message_len);
+    tmp = _agate_util_add_int(tmp, cur_userId);
+    sprintf(tmp, " %s %s", group, username);
 
-    //verify we are the owner of the group
-    bzero(buffer,256);
-    int ret = snprintf(buffer,256,"Select g.owner From Groups g Where g.groupName = '%s' and g.owner = %d;",group,cur_userId);
-    if(ret >= 256) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] groupname is too long.");
-	return false;
-    }
-    sendQuery(buffer,out);
-    if(atoi(out) != cur_userId) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] Caller is not owner of group.");
-	return false;
-    }
+    /* Send command 4 = add_user_to_group */
+    _send_command(command, command_len, &out, &out_len);
+    free(command);
 
-    int gId, uId;
-    //find the group id
-    ret = snprintf(buffer, 256, "Select g.groupID From Groups g Where g.groupName = '%s' and owner = %d;",
-		   group, cur_userId);
-    if(ret >= 256) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] groupname is too long.");
-	return false;
-    }
-    sendQuery(buffer,out);
-    gId = atoi(out);
-    if(gId <= 0) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] Tried to add to non-existent group.");
-	return false;
-    }
+    int result = _agate_util_int_from_byte_array(out);
+    free(out);
 
-    //find the user id
-    ret = snprintf(buffer, 256, "Select u.userID From Users u Where u.username = '%s';",
-		   username);
-    if(ret >= 256) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] username is too long.");
-	return false;
-    }
-    sendQuery(buffer,out);
-    uId = atoi(out);
-    if(uId <= 0) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] Tried to add non-existent user.");
-	return false;
-    }
-
-    //verify the user isn't already in the group
-    bzero(buffer,256);
-    ret = snprintf(buffer,256,"Select * From UserGroups ug Where ug.groupID = '%d' and ug.userID = %d;",gId,uId);
-    if(ret >= 256) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] some numbers are too large");
-	return false;
-    }
-    sendQuery(buffer,out);
-    if(atoi(out) != -1) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] User already in group.");
-	return false;
-    }
-
-    //perform insertion
-    bzero(buffer,256);
-    ret = snprintf(buffer, 256, "Insert Into UserGroups(groupId, userId) Values (%d, %d);", gId, uId);
-    if(ret >= 256) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addGroup] id, groupId, userId combination too long.");
-	return false;
-    }
-    sendQuery(buffer, out);
-    if(atoi(out) != -1) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] couldn't contact database.");
-	return false;
-    }
-
-
-    //commit
-    bzero(buffer,256);
-    strcpy(buffer,"COMMIT;");
-    sendQuery(buffer,out);
-    if(atoi(out) != -1) {
-        abortAndFail(true,"ERROR: UserMgmtModule: [addUserToGroup] couldn't contact database.");
-	return false;
-    }
-    
-    return true;
+    return result;
 }
+
+/* Asks user management to check if data can flow*/
+bool agate_can_flow(int from, int to) {
+    char* out;
+    char* command;
+    char* tmp;
+    int message_len, command_len, out_len;
+
+    if (from == 0) {
+        //ALOGI("can flow as no policy on data");
+        return true;
+    }
+
+    if (to == 0) {
+        //ALOGI("can't flow as target is not logged in");
+        return false; 
+    }
+
+    assert(from != 0);
+    assert(to != 0);
+
+    ALOGE("From policy:");
+    agate_print_policy(from);
+
+    ALOGE("To policy:");
+    agate_print_policy(to);
+
+    int e_from_size;
+    char* e_from = agate_encode_policy(&e_from_size, from);
+    ALOGE("From policy: e_from_size = %d.", e_from_size);
+
+    int e_to_size;
+    char* e_to = agate_encode_policy(&e_to_size, to);
+    ALOGE("To policy: e_to_size = %d.", e_to_size);
+
+    /* Compose command for add_user_to_group */
+    message_len = e_from_size + e_to_size;
+    command_len = message_len + sizeof(int) + 1; // 1 char for command_type
+    command = (char*)malloc(command_len + 1);
+    tmp = command;
+    *tmp++ = '5'; // command_type for add_user_to_group
+    tmp = _agate_util_add_int(tmp, message_len);
+
+    /* Put first the to policy, we assume it is only one reader */
+    memcpy(tmp, e_to, e_to_size);
+    memcpy(tmp + e_to_size, e_from, e_from_size);
+
+    /* Send command 5 = can_flow */
+    _send_command(command, command_len, &out, &out_len);
+    free(command);
+
+    int result = _agate_util_int_from_byte_array(out);
+    free(out);
+
+    return result;
+}
+
+/* The streams must be preceded by the number of elements.
+ *
+ *      Example stream: "3 username1 username2 username3 "
+ *
+ *  Each name must be followed by a space. If there are no names, a space at
+ *  the end is still required.
+ *
+ *      Example stream: "0 "
+ */
+char* get_users_and_groups_ids(char* users_stream, int u_size, char* groups_stream, int g_size, int total_len) {
+    char* out;
+    char* command;
+    char* tmp;
+    int message_len, command_len, out_len;
+
+    /* Compose command for get_users_and_groups_ids */
+    message_len = 2 * sizeof(int) + u_size + g_size;
+    command_len = message_len + sizeof(int) + 1; // 1 char for command_type
+    command = (char*)malloc(command_len + 1);
+    tmp = command;
+    *tmp++ = '6'; // command_type for get_users_and_groups_ids
+    tmp = _agate_util_add_int(tmp, message_len);
+    tmp = _agate_util_add_int(tmp, cur_userId);
+    tmp = _agate_util_add_int(tmp, total_len); // need total_len to know how mush space to allocate
+    memcpy(tmp, users_stream, u_size);
+    memcpy(tmp + u_size, groups_stream, g_size);
+
+    ALOGW("AgateLog: [AgateUser.cpp get_users_and_groups_ids] u_size = %d", u_size);
+    ALOGW("AgateLog: [AgateUser.cpp get_users_and_groups_ids] g_size = %d", g_size);
+
+    int g_len;
+    _agate_util_get_int(tmp + u_size, &g_len);
+    ALOGW("AgateLog: [AgateUser.cpp get_users_and_groups_ids] Groups len = %d", g_len);
+
+    /* Send command 6 = get_users_and_groups_ids */
+    _send_command(command, command_len, &out, &out_len);
+    free(command);
+
+    return out;
+}
+
+
+/* For testing */
+//int main(int argc, char ** argv) {
+//    printf("%d", agate_login((char*)"aaasz", (char*)"aaasz"));
+//    printf("%d", agate_add_user((char*)"user0", (char*)"user0"));
+//    printf("%d", agate_add_group((char*)"followers"));
+//    printf("%d", agate_add_user_to_group((char*)"user0", (char*)"followers"));
+//}

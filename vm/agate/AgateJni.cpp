@@ -4,62 +4,6 @@
 #include "agate/AgateJniInternal.h"
 #include "JniInternal.h"
 
-/**
- *  Helper functions
- */
-static char* _int_to_byte_array(char* dest, int value) {
-    for (u4 i = 0; i < sizeof(int); i++) {
-        *dest++ = (char)((value >> ((sizeof(int) - i - 1) * 8)) & 0xff);
-    }
-    return dest;
-}
-
-static int _int_from_byte_array(char* bytes) {
-    int value = 0;
-    for (u4 i = 0; i < sizeof(int); i++) {
-        value = value << 8;
-        value |= bytes[i] & 0xff;
-    }
-    return value;
-}
-
-static char* _copy_bytes(char* dest, char* src, u4 n) {
-    for (u4 i = 0; i < n; i++) {
-        *dest++ = *src++;
-    }
-    return dest;
-}
-
-static char* _add_int(char* dest, int val) {
-    return _int_to_byte_array(dest, val);
-}
-
-static char* _get_int(char* dest, int* val) {
-    *val = _int_from_byte_array(dest); 
-    return dest + sizeof(int);
-}
-
-//static char* _add_string(char* dest, std::string str) {
-//    dest = _add_int(dest, str.size());
-//    dest = _copy_bytes(dest, (char*) str.c_str(), str.size());
-//    return dest;
-//}
-
-//static char* _get_string(char* dest, Object** s) {
-//    int size;
-//    dest = _get_int(dest, &size);
-//    //ALOGW("Reader size: %d", size);
-//    Object* str = (Object*) dvmCreateStringFromCstrAndLength(dest, size);
-//    if (str == NULL) {
-//            // Probably OOM; drop out now.
-//            assert(dvmCheckException(dvmThreadSelf()));
-//            //dvmReleaseTrackedAlloc((Object*) stringArray, self);
-//    }
-//
-//    *s = str;
-//    return dest + size;
-//}
-
 static int _get_fd_from_filedescriptor(JNIEnv* env, jobject java_fd) {
     //TODO: Is this expensive? Set a global variable?
     jclass clazz = (jclass)env->NewGlobalRef(env->FindClass("java/io/FileDescriptor"));
@@ -89,7 +33,7 @@ bool agateJniCanFlow(JNIEnv* env, int from, int to) {
    if (to == 0)
        return false; 
 
-   return agate_can_flow((PolicyObject*)from, (PolicyObject*)to);
+   return agate_can_flow(from, to);
 }
 
 /*
@@ -109,10 +53,10 @@ int agateJniGetCurrentProcessPolicy(JNIEnv* env) {
     if(id == -1) {
         curTag = NULL;
     } else {
-        ArrayObject* readers = dvmAllocPrimitiveArray('I', 1, 0);
-        ((int*)(void*)readers->contents)[0] = id;
-        curTag = agate_create_policy(readers, NULL);
-        dvmReleaseTrackedAlloc(readers, NULL);
+        ArrayObject* user_readers = dvmAllocPrimitiveArray('I', 1, 0);
+        ((int*)(void*)user_readers->contents)[0] = id;
+        curTag = agate_create_policy(user_readers, NULL);
+        dvmReleaseTrackedAlloc(user_readers, NULL);
     }
 
     return (int)curTag;
@@ -152,66 +96,21 @@ int agateJniGetArrayPolicy(JNIEnv* env, jobject obj) {
 /*
  * Encodes a policy as a stream of bytes (Serializes)
  * - first 4 bytes in the stream represent the total length (in bytes) of the policy
+ * - the next 4 bytes contain the length of user_readers
+ * - follows the user_readers stream
+ * - next the length of the group_readers
+ * - the rest are the group_readers
  * - the "size" parameter will contain the total length of the returned stream
  */
 char* agateJniEncodePolicy(JNIEnv* env, int* size, int tag) {
-    PolicyObject* p = (PolicyObject*) tag;
-    if(p == NULL) {
-        char* out = (char*)malloc(sizeof(int));
-	_add_int(out, 0);    // policy has size 0
- 	*size = sizeof(int); // total length of stream has 4 bytes
-        return out;
-    }
-
-    int v_size = p->readers->length;
-    /* Compute total length of the serialized policy */
-    u4 p_size = v_size * sizeof(u4) + sizeof(u4); // encode also the vector size
-
-    /* Allocate memory */
-    char* bytes = (char*)malloc(p_size + sizeof(int));
-
-    /* Add the  policy as a continuous stream */
-    char* q = _add_int(bytes, p_size); // TODO: add u4, but it's ok because sizeof(u4) = sizeof(int)
-    q = _add_int(q, v_size);
-    for (int i = 0; i < v_size; i++) {
-        q = _add_int(q, ((int*)(void*)p->readers->contents)[i]);
-    }
-
-    // TODO: add writers
-    *size = p_size + sizeof(int);
-    return bytes;
+    return agate_encode_policy(size, tag);
 }
 
 /*
  * De-codes a policy from a stream of bytes (De-serialization)
  */
 int agateJniDecodePolicy(JNIEnv* env, char* s) {
-    // TODO: for now only the readers
-    u4 n_r;
-    s = _get_int(s, (int*)&n_r); // get nr. of readers
-    ALOGW("AgateLog: [agateJniDecodePolicy] No readers: %d", (int) n_r);
-
-    /* Allocate space for a new policy */
-    PolicyObject* p = (PolicyObject*) dvmMalloc(sizeof(PolicyObject), ALLOC_DEFAULT);
-
-    /* Allocate space for the reader's vector */
-    // no need to track the allocation, p is already tracked and scanned.
-    p->readers = dvmAllocPrimitiveArray('I', n_r, ALLOC_DEFAULT);
-    dvmReleaseTrackedAlloc((Object*)p->readers, NULL);
-
-    if (p->readers == NULL) {
-        // Probably OOM.
-        assert(dvmCheckException(dvmThreadSelf()));
-        return 0;
-    }
-
-    /* Copy contents from readers argument */
-    for (u4 i = 0; i < n_r; i++) {
-        s = _get_int(s, (int*)(void*)p->readers->contents + i);
-        ALOGW("AgateLog: [agateJniDecodePolicy] Reader: %d", (int)(int*)(void*)p->readers->contents[i]);
-    }
-
-    return (int)p;
+    return agate_decode_policy(s);
 }
 
 /*
@@ -246,7 +145,7 @@ void agateJniAddArrayPolicy(JNIEnv* env, jobject obj, int tag) {
 }
 
 void agateJniPrintPolicy(int tag) {
-	agate_print_policy((PolicyObject*)tag);
+    agate_print_policy(tag);
 }
 
 /* Get the identity of the logged in user */

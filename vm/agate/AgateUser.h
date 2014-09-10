@@ -32,5 +32,10 @@ bool agate_add_group(char* group);
  */
 bool agate_add_user_to_group(char* username, char* group);
 
+/* Policy flow check */
+bool agate_can_flow(int from, int to);
+
+/* Get IDs of users and groups */
+char* get_users_and_groups_ids(char* users_stream, int u_size, char* groups_stream, int g_size, int total_len);
 
 #endif /*_DALVIK_AGATE_USER */
