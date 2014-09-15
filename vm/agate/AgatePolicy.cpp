@@ -232,6 +232,15 @@ int agate_merge_policies(int tag1, int tag2)
     PolicyObject* p1 = (PolicyObject*) tag1;
     PolicyObject* p2 = (PolicyObject*) tag2;
 
+    /* Check if policies are equal */
+    if ((p1->user_readers->length == p2->user_readers->length) &&
+        (p1->group_readers->length == p2->group_readers->length) &&
+        !memcmp(p1->user_readers->contents, p2->user_readers->contents, p1->user_readers->length * sizeof(int)) &&
+        !memcmp(p1->group_readers->contents, p2->group_readers->contents, p1->group_readers->length * sizeof(int))) {
+        return tag1;
+    }
+
+
     /*
      * We perform the union (of user_readers and group_readers) of the two policies
      */

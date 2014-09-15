@@ -16,10 +16,13 @@
     u4 r = _tag1?(_tag2?agate_merge_policies(_tag1, _tag2):_tag1):_tag2; \
     gettimeofday(&stop, 0); \
     long elapsed = (stop.tv_sec - start.tv_sec) * 1000000 + stop.tv_usec - start.tv_usec; \
-    if (r != 0 && r!= _tag1 && r!= _tag2) \
-        ALOGE("Merged complex policies in: %ld ns", elapsed); \
+    if (r != 0) \
+        if (r!= _tag1 && r!= _tag2) \
+            ALOGE("Merged complex policies in: %ld ns", elapsed); \
     r; })
 
+//else \
+//    ALOGE("Merged simple (equal or with a 0 policy) policies in: %ld ns", elapsed); \ 
 
 /* The structure of a policy.
  *

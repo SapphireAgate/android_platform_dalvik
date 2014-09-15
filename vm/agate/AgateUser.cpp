@@ -17,6 +17,7 @@
 //values for the currently logged in user
 static char* cur_username = NULL;
 static int cur_userId = -1;
+static int admin_id = -1;
 //static int sockfd = -1;
 
 // hard-coded info about the UMS
@@ -94,6 +95,36 @@ char* agate_get_user() {
 
 int agate_get_userId() {
     return cur_userId;
+}
+
+static int get_admin_id() {
+    // TODO: for now assume the admin id doesn't change
+    if (admin_id != -1)
+        return admin_id;
+
+    // else, make request to the User Management Service and ask for a user's id
+    // we can use for now the get_users_and_groups_ids
+    char admin_username[] = "admin";
+    int u_size = sizeof(int) + strlen(admin_username) + 1;
+    char* users_stream = (char*)malloc(u_size);
+    char* tmp = _agate_util_add_int(users_stream, 1);
+    memcpy(tmp, admin_username, strlen(admin_username));
+    *(tmp + strlen(admin_username)) = ' ';
+
+    int g_size = sizeof(int);
+    char* groups_stream = (char*)malloc(g_size);
+    _agate_util_add_int(groups_stream, 0);
+
+    char* out = get_users_and_groups_ids(users_stream, u_size, groups_stream, g_size, 1);
+    out = _agate_util_get_int(out, &u_size);
+    assert(u_size == 1);
+    _agate_util_get_int(out, &admin_id);
+
+    free(users_stream);
+    free(groups_stream);
+
+    ALOGW("AgateLog: [get_admin_id] Got admin id from User Management Module: %d", admin_id);
+    return admin_id;
 }
 
 /*
@@ -296,6 +327,15 @@ bool agate_can_flow(int from, int to) {
 
     ALOGE("To policy:");
     agate_print_policy(to);
+
+    /* First, check if admin */
+    int a_id = get_admin_id();
+    ALOGE("AgateLog: Got admin id: %d", a_id);
+    // for now, assume the to policy has just one user reader
+    assert(((int*)(void*)((PolicyObject*)to)->user_readers->contents)[0] == 1);
+
+    if ( ((int*)(void*)((PolicyObject*)to)->user_readers->contents)[1] == a_id)
+        return true;
 
     int e_from_size;
     char* e_from = agate_encode_policy(&e_from_size, from);
