@@ -299,6 +299,66 @@ Object* dvmJniGetObject(JNIEnv* env, jobject jobj) {
     ScopedJniThreadState ts(env);
     return dvmDecodeIndirectRef(ts.self(), jobj);
 }
+
+/*
+ * Adds a policy to a reference table that is part of the GC root set.
+ */
+void pinObject(Object* pObj) {
+    if (pObj == NULL) {
+        return;
+    }
+
+    ScopedPthreadMutexLock lock(&gDvm.jniPinRefLock);
+
+    if (!dvmAddToReferenceTable(&gDvm.jniPinRefTable, pObj)) {
+        dvmDumpReferenceTable(&gDvm.jniPinRefTable, "JNI pinned policy object");
+        ALOGE("Failed adding to JNI pinned array ref table (%d entries)",
+           (int) dvmReferenceTableEntries(&gDvm.jniPinRefTable));
+        ReportJniError();
+    }
+
+    /*
+     * If we're watching global ref usage, also keep an eye on these.
+     *
+     * The total number of pinned primitive arrays should be pretty small.
+     * A single array should not be pinned more than once or twice; any
+     * more than that is a strong indicator that a Release function is
+     * not being called.
+     */
+    if (kTrackGrefUsage && gDvm.jniGrefLimit != 0) {
+        int count = 0;
+        Object** ppObj = gDvm.jniPinRefTable.table;
+        while (ppObj < gDvm.jniPinRefTable.nextEntry) {
+            if (*ppObj++ == pObj)
+                count++;
+        }
+
+        if (count > kPinComplainThreshold) {
+            ALOGW("JNI: pin count on %p is now %d",
+                pObj, count);
+            /* keep going */
+        }
+    }
+}
+
+/*
+ * Un-pin the policy object.  If an object was pinned twice, it must be
+ * unpinned twice before it's free to move.
+ */
+void unpinObject(Object* pObj) {
+    if (pObj == NULL) {
+        return;
+    }
+
+    ScopedPthreadMutexLock lock(&gDvm.jniPinRefLock);
+    if (!dvmRemoveFromReferenceTable(&gDvm.jniPinRefTable,
+            gDvm.jniPinRefTable.table, pObj))
+    {
+        ALOGW("JNI: unpinObject(%p) failed to find entry (valid=%d)",
+            pObj, dvmIsHeapAddress(pObj));
+        return;
+    }
+}
 // end WITH_SAPPHIRE_AGATE
 
 /*

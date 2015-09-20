@@ -28,6 +28,11 @@ void dvmJniShutdown(void);
 // begin WITH_SAPPHIRE_AGATE
 /* Functions to retrieve Dalvik VM objects from JNI object references */
 Object* dvmJniGetObject(JNIEnv* env, jobject jobj);
+
+/* Functions to pin an object */
+void pinObject(Object* obj);
+void unpinObject(Object* obj);
+
 // end WITH_SAPPHIRE_AGATE
 
 /*

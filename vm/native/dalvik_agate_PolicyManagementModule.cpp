@@ -187,7 +187,7 @@ static void Dalvik_dalvik_agate_PolicyManagementModule_addPolicyString__I(const 
 /* Adds a policy on an array */
 static void _add_policy_array(ArrayObject* arr, u4 tag)
 {
-    ALOGW("AgateLog: [_add_policy_array]");
+    //ALOGW("AgateLog: [_add_policy_array]");
     if (arr) {
         if (arr->taint.tag == 0) {
 	    arr->taint.tag = tag;

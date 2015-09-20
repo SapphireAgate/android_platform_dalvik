@@ -1,6 +1,7 @@
 #include "Dalvik.h"
 #include "agate/AgatePolicy.h"
 #include "AgateUtil.h"
+#include "JniInternal.h"
 
 #include <set>
 #include <algorithm>
@@ -345,6 +346,11 @@ void agate_add_policy_on_socket(int fd, PolicyObject* p)
     /* Don't add if no policy */
     if (p != NULL) {
         SocketTag* tmpT = (SocketTag*) malloc(sizeof(SocketTag));
+        
+        // pin the object to prevent the GC to collect it. (It is currently in
+        // the thread's local ref table but the thread might die)
+        pinObject((Object*)p);
+
         if (tmpT) {
             tmpT->policy = p;
             tmpT->fd = fd;
@@ -394,6 +400,7 @@ int agate_get_policy_on_socket(int fd)
 
     if (p) {
         ALOGW("AgateLog: [agate_get_policy_on_socket(%d)] = 0x%08x", fd, (u4)p);
+        agate_print_policy((int)p);
     }
 
     return (int)p;

@@ -21,7 +21,7 @@ static int admin_id = -1;
 //static int sockfd = -1;
 
 // hard-coded info about the UMS
-static const char* HOST = "howe.cs.washington.edu";
+static const char* HOST = "dunbar.cs.washington.edu";
 static int PORT = 24068; 
 
 /* Verify a name is actually a name */
@@ -322,10 +322,10 @@ bool agate_can_flow(int from, int to) {
     assert(from != 0);
     assert(to != 0);
 
-    ALOGE("From policy:");
+    ALOGE("From policy: (%p)", from);
     agate_print_policy(from);
 
-    ALOGE("To policy:");
+    ALOGE("To policy: (%p)", to);
     agate_print_policy(to);
 
     /* First, check if admin */
